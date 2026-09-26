@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { TemplateTool } from "../config/schema";
 import { executeTemplateTool } from "../config/template";
 import { GET_STARTED_URL, SIGNUP_URL } from "../data/business";
-import { findOpenSlot, getDb, getOpenSlots, insertBooking, markSlotBooked, searchKnowledge } from "../store";
+import { findOpenSlot, getDb, getOpenSlots, insertBooking, searchKnowledge } from "../store";
 
 export type ToolCtx = { conversationId: string };
 
@@ -31,7 +31,7 @@ export const BUILTINS: Record<string, Builtin> = {
       // Only real, open slots can be booked; free-text times like "Tuesday afternoon" are rejected.
       const slot = await findOpenSlot(String(input.slot));
       if (!slot) return { booked: false, error: "That isn't an open time on the engineers' calendar. You need an exact open slot to book." };
-      await markSlotBooked(slot.slotId as string);
+      // Slots are for a team of engineers, so one time can be booked by several visitors; each booking is recorded per conversation.
       await insertBooking({ conversationId: ctx.conversationId, slot: slot.label as string, name: input.name as string | undefined, email: input.email as string | undefined });
       return { booked: true, slot: slot.label };
     },
