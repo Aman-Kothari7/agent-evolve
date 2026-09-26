@@ -16,6 +16,7 @@ const clock = (ts: string) => new Date(ts).toLocaleTimeString("en-US", { minute:
 
 function phaseOf(e: Ev): string {
   const p = e.payload;
+  if (e.type === "rubric" || e.type === "grading") return "define";
   if (e.type === "test_progress") return p.stage === "baseline" ? "baseline" : "test";
   if (e.type === "thinking" && String(p.text ?? "").startsWith("Round started")) return "baseline";
   if (e.type === "tool_call") return p.tool === "stats" || p.tool === "classify" ? "diagnose" : "investigate";
@@ -27,6 +28,7 @@ function phaseOf(e: Ev): string {
 
 const PHASES: Omit<Phase, "events">[] = [
   { key: "baseline", title: "Baseline", blurb: "Practice visitors talk to the live config. Jev labels every conversation." },
+  { key: "define", title: "Define success", blurb: "An independent judge turns the goal into a frozen rubric. Jev grades every conversation with it." },
   { key: "diagnose", title: "Diagnose", blurb: "Aggregations over Jev labels, plus new labels the coach asks Jev for on demand." },
   { key: "investigate", title: "Investigate", blurb: "Hybrid search ($rankFusion) and full transcripts for the failing cases." },
   { key: "propose", title: "Propose", blurb: "One typed change to the harness config, with evidence." },
@@ -43,6 +45,7 @@ export function CoachClient({ goal, active, initialVersions }: { goal: string; a
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [focus, setFocus] = useState("");
+  const [goalText, setGoalText] = useState(goal);
   const bottom = useRef<HTMLDivElement>(null);
 
   const refresh = useCallback(async () => {
@@ -91,7 +94,7 @@ export function CoachClient({ goal, active, initialVersions }: { goal: string; a
     setStarting(true);
     setError(null);
     try {
-      const r = await fetch("/api/coach/round", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ focus }) }).then((x) => x.json());
+      const r = await fetch("/api/coach/round", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ focus, goal: goalText !== goal ? goalText : undefined }) }).then((x) => x.json());
       setEvents([]);
       setRound(r.round);
       refresh();
@@ -124,6 +127,17 @@ export function CoachClient({ goal, active, initialVersions }: { goal: string; a
           <p className="mt-2 text-sm text-muted-foreground">Goal (locked): {goal}</p>
         </div>
         <div className="ml-auto flex w-full max-w-md flex-col items-stretch gap-2">
+          <label htmlFor="goal" className="eyebrow">
+            Goal for this round (the judge turns it into a rubric)
+          </label>
+          <textarea
+            id="goal"
+            value={goalText}
+            onChange={(e) => setGoalText(e.target.value)}
+            disabled={running}
+            rows={3}
+            className="rounded-xl border bg-card px-4 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-coach/40"
+          />
           <label htmlFor="focus" className="eyebrow">
             Focus for this round (optional)
           </label>
@@ -315,6 +329,42 @@ function Verdict({ d }: { d: Record<string, unknown> }) {
 function EventRow({ e }: { e: Ev }) {
   const p = e.payload;
   const time = <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{clock(e.ts)}</span>;
+
+  if (e.type === "rubric") {
+    const criteria = (p.criteria as Record<string, string>[]) ?? [];
+    return (
+      <div className="rise overflow-hidden rounded-xl border border-coach/40">
+        <div className="flex flex-wrap items-center gap-2 bg-coach-soft px-3 py-1.5">
+          <span className="rounded bg-coach px-1.5 py-0.5 font-mono text-[10.5px] font-semibold text-white">rubric</span>
+          <span className="text-sm font-medium">{String(p.summary)}</span>
+          <span className="ml-auto font-mono text-[10px] text-muted-foreground">judge {String(p.model)} · frozen</span>
+        </div>
+        <ol className="flex flex-col divide-y">
+          {criteria.map((c) => (
+            <li key={c.id} className="grid grid-cols-[auto_1fr] gap-x-2 px-3 py-1.5 text-xs">
+              <span className={cn("mt-0.5 rounded px-1 font-mono text-[10px]", c.kind === "event" ? "bg-ink text-white" : "bg-agent-soft text-agent")}>{c.kind === "event" ? "event" : "Jev"}</span>
+              <div>
+                <p className="font-medium">{c.kind === "event" ? String(c.event).replace(/_/g, " ") : c.question}{c.kind === "question" && c.passWhen === "no" ? " → pass if no" : ""}</p>
+                {c.appliesWhen && <p className="text-muted-foreground">applies when: {c.appliesWhen}</p>}
+              </div>
+            </li>
+          ))}
+        </ol>
+      </div>
+    );
+  }
+
+  if (e.type === "grading")
+    return (
+      <div className="rise flex flex-wrap items-center gap-2 text-sm">
+        <span className="rounded-md bg-ink px-2 py-0.5 font-mono text-[11px] text-white">Jev</span>
+        <span>
+          graded <b>{String(p.graded)}</b> conversations on v{String(p.version)} in {String(p.seconds)}s: <b className="text-pass">{String(p.success)} pass</b>, <b className="text-fail">{Number(p.graded) - Number(p.success)} fail</b>
+        </span>
+        <span className="text-xs text-muted-foreground">agrees with the practice ground truth {String(p.agreement)}%</span>
+        <span className="ml-auto">{time}</span>
+      </div>
+    );
 
   if (e.type === "thinking" && p.focus)
     return (
