@@ -23,26 +23,26 @@ export async function ensureBaseline(version: number, agentTurn: AgentTurnFn, ro
   await labelPending(500, 10);
 }
 
-export async function runRound(opts: { agentTurn?: AgentTurnFn; round?: string } = {}) {
+export async function runRound(opts: { agentTurn?: AgentTurnFn; round?: string; focus?: string } = {}) {
   const agentTurn = opts.agentTurn ?? (await loadRunTurn());
   const round = opts.round ?? `r_${Date.now()}`;
   if (!(await acquireCoachLock(round))) throw new Error("Another coach round is already running (pnpm evolve or the web app). Try again when it finishes.");
   try {
-    return await runRoundLocked(round, agentTurn);
+    return await runRoundLocked(round, agentTurn, opts.focus?.trim() || undefined);
   } finally {
     await releaseCoachLock(round);
   }
 }
 
-async function runRoundLocked(round: string, agentTurn: AgentTurnFn) {
+async function runRoundLocked(round: string, agentTurn: AgentTurnFn, focus?: string) {
   const baseVersion = await getActiveVersion();
   const base = await getConfig(baseVersion);
 
-  await logCoachEvent(round, "thinking", { text: `Round started on v${baseVersion}. Preparing baseline conversations.` });
+  await logCoachEvent(round, "thinking", { text: `Round started on v${baseVersion}. Preparing baseline conversations.`, focus });
   await ensureBaseline(baseVersion, agentTurn, round);
 
   const newVersion = await nextVersionNumber();
-  const { proposal, newConfig } = await runCoach({ round, config: base, newVersion });
+  const { proposal, newConfig } = await runCoach({ round, config: base, newVersion, focus });
   if (!proposal || !newConfig) {
     await logCoachEvent(round, "decision", { version: null, decision: "no_proposal" });
     return { round, baseVersion, decision: "no_proposal" as const };

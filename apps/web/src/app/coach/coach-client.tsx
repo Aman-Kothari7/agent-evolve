@@ -42,6 +42,7 @@ export function CoachClient({ goal, active, initialVersions }: { goal: string; a
   const [liveVersion, setLiveVersion] = useState(active);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [focus, setFocus] = useState("");
   const bottom = useRef<HTMLDivElement>(null);
 
   const refresh = useCallback(async () => {
@@ -84,7 +85,7 @@ export function CoachClient({ goal, active, initialVersions }: { goal: string; a
     setStarting(true);
     setError(null);
     try {
-      const r = await fetch("/api/coach/round", { method: "POST" }).then((x) => x.json());
+      const r = await fetch("/api/coach/round", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ focus }) }).then((x) => x.json());
       setEvents([]);
       setRound(r.round);
       refresh();
@@ -116,11 +117,22 @@ export function CoachClient({ goal, active, initialVersions }: { goal: string; a
           <h1 className="display mt-1 text-4xl">The coach rewrites the assistant&apos;s harness.</h1>
           <p className="mt-2 text-sm text-muted-foreground">Goal (locked): {goal}</p>
         </div>
-        <div className="ml-auto flex flex-col items-end gap-2">
+        <div className="ml-auto flex w-full max-w-md flex-col items-stretch gap-2">
+          <label htmlFor="focus" className="eyebrow">
+            Focus for this round (optional)
+          </label>
+          <input
+            id="focus"
+            value={focus}
+            onChange={(e) => setFocus(e.target.value)}
+            disabled={running}
+            placeholder="e.g. stop offering engineer calls to students"
+            className="rounded-full border bg-card px-4 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-coach/40"
+          />
           <button
             onClick={start}
             disabled={starting || running}
-            className="inline-flex items-center gap-2 rounded-full bg-coach px-5 py-2.5 text-sm font-semibold text-white shadow-sm outline-none transition hover:brightness-105 focus-visible:ring-2 focus-visible:ring-coach/50 disabled:opacity-60"
+            className="inline-flex items-center justify-center gap-2 rounded-full bg-coach px-5 py-2.5 text-sm font-semibold text-white shadow-sm outline-none transition hover:brightness-105 focus-visible:ring-2 focus-visible:ring-coach/50 disabled:opacity-60"
           >
             <span className={cn("size-2 rounded-full bg-white", running && "pulse-dot")} />
             {running ? "Round in progress" : starting ? "Starting…" : `Run a round on v${liveVersion}`}
@@ -297,6 +309,15 @@ function Verdict({ d }: { d: Record<string, unknown> }) {
 function EventRow({ e }: { e: Ev }) {
   const p = e.payload;
   const time = <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{clock(e.ts)}</span>;
+
+  if (e.type === "thinking" && p.focus)
+    return (
+      <div className="rise flex flex-wrap items-center gap-2 text-sm">
+        <span className="rounded-md bg-coach-soft px-2 py-0.5 font-mono text-[11px] text-coach">focus</span>
+        <span className="font-medium">{String(p.focus)}</span>
+        <span className="ml-auto">{time}</span>
+      </div>
+    );
 
   if (e.type === "thinking")
     return (

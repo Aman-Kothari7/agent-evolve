@@ -15,11 +15,11 @@ const TOOL_CATALOG = `- search_docs {query}: semantic search over the MongoDB do
 - lookup_limits {tier?: free|flex|dedicated, feature?}: returns rows from the limits table: tiers {tier, maxSearchIndexes, multiRegion, forProduction, bestFor} and features {feature, minVersion}.
 - send_signup_link {}: returns the free-tier signup link and the getting-started guide.`;
 
-function systemPrompt(config: AgentConfig): string {
+function systemPrompt(config: AgentConfig, focus?: string): string {
   return `You are the coach for the MongoDB Atlas website chat assistant (support + sales). Your job: improve the assistant's HARNESS CONFIG so it reaches its goal more often.
 
 GOAL (locked): ${config.goal.description}
-
+${focus ? `\nOPERATOR FOCUS FOR THIS ROUND: ${focus}\nInvestigate this first. Propose a change for it if the conversation evidence supports it; the locked goal and the test still decide whether the change is kept.\n` : ""}
 THE TOOL CATALOG (fixed; you cannot add tools or change what a tool does)
 ${TOOL_CATALOG}
 For each tool in the config you CAN: turn it on or off (tools.<key>.enabled), rewrite the description the assistant reads to decide when to call it (tools.<key>.description), rename it (tools.<key>.name, lowercase_with_underscores), gate it on known state facts (tools.<key>.requires), and cap uses per chat (tools.<key>.maxUses). You CANNOT create, remove, or re-implement tools.
@@ -69,8 +69,8 @@ function summarizeOutput(tool: string, out: unknown): unknown {
 
 export type CoachResult = { proposal: Proposal | null; newConfig: AgentConfig | null; steps: number };
 
-export async function runCoach(opts: { round: string; config: AgentConfig; newVersion: number }): Promise<CoachResult> {
-  const { round, config, newVersion } = opts;
+export async function runCoach(opts: { round: string; config: AgentConfig; newVersion: number; focus?: string }): Promise<CoachResult> {
+  const { round, config, newVersion, focus } = opts;
   let accepted: { proposal: Proposal; newConfig: AgentConfig } | null = null;
   const v = config.version;
 
@@ -155,7 +155,7 @@ export async function runCoach(opts: { round: string; config: AgentConfig; newVe
 
   const r = await generateText({
     model: chatModel(MODELS.coach),
-    system: systemPrompt(config),
+    system: systemPrompt(config, focus),
     prompt: "Diagnose the biggest reason the goal is being missed on the active version and propose one change.",
     tools,
     // Stop once a valid proposal is in, or after 16 steps. (hasToolCall alone would also stop on invalid proposals.)

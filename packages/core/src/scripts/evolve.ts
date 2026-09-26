@@ -6,12 +6,14 @@ import { closeDb } from "../store";
 
 const i = process.argv.indexOf("--rounds");
 const rounds = i >= 0 ? Number(process.argv[i + 1]) : 5;
+const f = process.argv.indexOf("--focus");
+const focus = f >= 0 ? process.argv[f + 1] : undefined;
 const agentTurn = await loadRunTurn();
 
 for (let n = 1; n <= rounds; n++) {
   const t0 = Date.now();
   try {
-    const r = await runRound({ agentTurn });
+    const r = await runRound({ agentTurn, focus });
     const secs = ((Date.now() - t0) / 1000).toFixed(0);
     if (r.decision === "no_proposal") console.log(`Round ${n}: v${r.baseVersion} no proposal (${secs}s)`);
     else console.log(`Round ${n}: v${r.baseVersion} → v${r.candidateVersion} ${r.decision.toUpperCase()} [${r.proposal?.area}] ${r.proposal?.reason}\n         ${r.test?.notes} (${secs}s)`);

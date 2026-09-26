@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { ComparePanel } from "@/components/compare-panel";
 
 const CASE_TITLES: Record<string, string> = {
   D2: "Migration → engineer call",
@@ -48,8 +49,10 @@ export function ReplayClient({ personas, versions, conversations, active }: { pe
     }
   }
 
+  const latest = versions[versions.length - 1]?.version ?? active;
   return (
     <div className="flex flex-col gap-4">
+      <ComparePanel versions={versions} changes={changes} initial={[Math.max(1, latest - 1), latest]} />
       <div className="flex flex-wrap items-end gap-3">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Replay</h1>
