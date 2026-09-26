@@ -46,6 +46,10 @@ export type Turn = {
   ruleEvents?: RuleEvent[];
   stateAfter?: StateSnapshot;
   provenance?: number[];
+  toolsAvailable?: string[];
+  contextLoaded?: string[];
+  model?: string;
+  costUsd?: number;
   ts: Date;
 };
 
@@ -86,6 +90,7 @@ export type Conversation = {
 export type RunTurnInput = {
   conversationId?: string;
   configVersion?: number; // defaults to the active version
+  config?: import("./config/schema").AgentConfig; // run an unsaved config (tests); pass it on every turn
   message: string;
   source?: Conversation["source"];
   personaId?: string;
@@ -101,5 +106,7 @@ export type RunTurnResult = {
   toolCalls: ToolCallLog[];
   ruleEvents: RuleEvent[];
   provenance: number[];
+  toolsAvailable?: string[];
+  contextLoaded?: string[];
   ended: boolean;
 };

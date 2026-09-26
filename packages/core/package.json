@@ -11,7 +11,8 @@
     "seed": "tsx --env-file=../../.env.local src/scripts/seed.ts",
     "simulate": "tsx --env-file=../../.env.local src/scripts/simulate.ts",
     "label": "tsx --env-file=../../.env.local src/scripts/label.ts",
-    "evolve": "tsx --env-file=../../.env.local src/scripts/evolve.ts"
+    "evolve": "tsx --env-file=../../.env.local src/scripts/evolve.ts",
+    "chat": "tsx --env-file=../../.env.local src/scripts/chat.ts"
   },
   "dependencies": {
     "@openrouter/ai-sdk-provider": "latest",
