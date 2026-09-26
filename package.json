@@ -1,0 +1,14 @@
+{
+  "name": "agent-evolve",
+  "private": true,
+  "packageManager": "pnpm@9.15.9",
+  "scripts": {
+    "dev": "pnpm --filter @evolve/web dev",
+    "build": "pnpm --filter @evolve/web build",
+    "typecheck": "pnpm -r exec tsc --noEmit",
+    "seed": "pnpm --filter @evolve/core seed",
+    "simulate": "pnpm --filter @evolve/core simulate",
+    "label": "pnpm --filter @evolve/core label",
+    "evolve": "pnpm --filter @evolve/core evolve"
+  }
+}

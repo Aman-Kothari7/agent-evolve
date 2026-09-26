@@ -1,0 +1,26 @@
+{
+  "name": "@evolve/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "seed": "tsx --env-file=../../.env.local src/scripts/seed.ts",
+    "simulate": "tsx --env-file=../../.env.local src/scripts/simulate.ts",
+    "label": "tsx --env-file=../../.env.local src/scripts/label.ts",
+    "evolve": "tsx --env-file=../../.env.local src/scripts/evolve.ts"
+  },
+  "dependencies": {
+    "@openrouter/ai-sdk-provider": "latest",
+    "ai": "latest",
+    "mongodb": "latest",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "tsx": "latest",
+    "typescript": "^5"
+  }
+}
