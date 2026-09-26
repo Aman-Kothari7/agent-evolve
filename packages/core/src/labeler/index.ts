@@ -65,7 +65,7 @@ export async function labelConversation(c: Conversation): Promise<{ labels: Labe
   const outcomeLine = describeOutcome(c) + (c.outcome && !c.outcome.success ? " Pick the failure type that explains why; don't choose none." : "");
 
   const [judged, summaryRes] = await Promise.all([
-    evaluate({ model: jevModel(), state: { transcript, outcome: outcomeLine }, questions: QUESTIONS }),
+    evaluate({ abortSignal: AbortSignal.timeout(45_000), model: jevModel(), state: { transcript, outcome: outcomeLine }, questions: QUESTIONS }),
     generateText({
       model: chatModel(MODELS.summary),
       prompt: `Summarize this MongoDB Atlas support/sales chat in 2-3 sentences for an analyst: what the customer wanted, what the agent did (including tools), where it went well or wrong, and the outcome. No preamble.\n\n${transcript}\n\n${outcomeLine}`,

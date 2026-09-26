@@ -91,7 +91,7 @@ export async function gradeConversation(c: Conversation, rubric: Rubric): Promis
     if (cr.kind === "question" && cr.question) questions[`q_${cr.id}`] = { type: "boolean", instructions: cr.question };
   }
   const answers = Object.keys(questions).length
-    ? ((await evaluate({ model: jevModel(), state: { transcript: transcriptText(c) }, questions })).answers as Record<string, { probability?: number }>)
+    ? ((await evaluate({ abortSignal: AbortSignal.timeout(45_000), model: jevModel(), state: { transcript: transcriptText(c) }, questions })).answers as Record<string, { probability?: number }>)
     : {};
   const yes = (k: string) => (answers[k]?.probability ?? 0) >= 0.5;
   const booked = !!(await getBookingFor(c._id));

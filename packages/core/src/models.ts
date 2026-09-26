@@ -60,7 +60,16 @@ export const chatModel = (id: string) =>
       specificationVersion: "v4",
       wrapGenerate: async ({ doGenerate }) => {
         await acquire(id);
-        return doGenerate();
+        // Never let one hung provider call freeze a round: fail after 90s so callers can skip or retry.
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const timeout = new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`${id} timed out after 90s`)), 90_000);
+        });
+        try {
+          return await Promise.race([doGenerate(), timeout]);
+        } finally {
+          clearTimeout(timer);
+        }
       },
       wrapStream: async ({ doStream }) => {
         await acquire(id);

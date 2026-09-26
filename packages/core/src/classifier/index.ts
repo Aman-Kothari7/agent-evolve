@@ -38,7 +38,7 @@ export async function classifyConversations(spec: ClassifySpec, concurrency = 12
             spec.type === "boolean"
               ? { type: "boolean" as const, instructions: spec.question }
               : { type: "choice" as const, instructions: spec.question, criteria: spec.options! };
-          const r = await evaluate({ model: jevModel(), state: { transcript: transcriptText(c), outcome: describeOutcome(c) }, questions: { q } });
+          const r = await evaluate({ abortSignal: AbortSignal.timeout(45_000), model: jevModel(), state: { transcript: transcriptText(c), outcome: describeOutcome(c) }, questions: { q } });
           const a = r.answers.q as { type: string; probability?: number; choice?: string };
           const value = a.type === "boolean" ? ((a.probability ?? 0) >= 0.5 ? "yes" : "no") : String(a.choice);
           answers.push({ id: c._id, value, success: (c as { grade?: { success: boolean } }).grade?.success ?? !!c.outcome?.success });

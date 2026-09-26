@@ -15,6 +15,7 @@ export async function ask(state: JsonState, questions: Record<string, Question>)
   if (!Object.keys(questions).length) return {};
   try {
     const r = await evaluate({
+      abortSignal: AbortSignal.timeout(45_000),
       model: jevModel(),
       state: state as never,
       questions: Object.fromEntries(
