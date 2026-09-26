@@ -7,3 +7,4 @@ export * from "./store";
 export { runRound, ensureBaseline } from "./evolve";
 export { labelConversation, labelPending, transcriptText } from "./labeler";
 export { runConversation, loadRunTurn } from "./simulator/run";
+export { runTurn } from "./runtime";
