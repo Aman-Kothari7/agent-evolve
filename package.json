@@ -6,6 +6,7 @@
     "dev": "pnpm --filter @evolve/web dev",
     "build": "pnpm --filter @evolve/web build",
     "typecheck": "pnpm -r exec tsc --noEmit",
+    "doctor": "pnpm --filter @evolve/core doctor",
     "seed": "pnpm --filter @evolve/core seed",
     "simulate": "pnpm --filter @evolve/core simulate",
     "label": "pnpm --filter @evolve/core label",

@@ -175,7 +175,7 @@ runTurn({ conversationId?, config, message, persona? /* sim only */, seed? }): P
 ```
 **One turn:**
 1. Append the customer message.
-2. **Update state:** one Jev `evaluate()` call answers every `jev` state field. State = `{transcript so far}`. Choice fields → the choice; yes/no fields → `noul ≥ 0.5`; `text` fields → one cheap LLM extraction (only if any exist).
+2. **Update state:** one Jev `evaluate()` call answers every `jev` state field. State = `{transcript so far}`. Choice fields → the choice; yes/no fields → `boolean` question, `probability ≥ 0.5`; `text` fields → one cheap LLM extraction (only if any exist).
 3. **Context:** for each trigger that fires, load the knowledge doc into the system prompt.
 4. **Available tools:** `enabled && requires ⊆ known state fields && uses < maxUses`, plus `render_widget` if any widget's `requires` are met.
 5. **Generate** with AI SDK `generateText({ model, system, messages, tools, stopWhen: stepCountIs(4) })`. Tools are defined with `execute` wrappers that **enforce `tool_order` and `limit` rules first**. A violation returns an error string to the model instead of executing.
@@ -194,11 +194,12 @@ Tool calls are the objective signal for success checks.
 
 Jev in AI SDK 7:
 ```ts
-import { evaluate } from "ai";
+import { experimental_evaluate as evaluate } from "ai";   // AI SDK 7 exports it as experimental_evaluate
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 const openrouter = createOpenRouter({ apiKey: process.env.OPENROUTER_API_KEY });
 const r = await evaluate({ model: openrouter.evaluationModel("typesafe/jev-1.13"), state, questions });
-// question types: noul {instructions, criteria:{true,false}} | choice {instructions, criteria:{key: desc}} | score {instructions, criteria:[levels]}
+// question types: boolean {instructions, criteria?:{true,false}} → {probability} | choice {instructions, criteria:{key: desc|null}} → {choice, probabilities} | score {instructions, criteria:[levels]} → {score}
+// Verified working 2026-09-26: ~1.4 s for 2 questions.
 ```
 Check the exact types in `node_modules/ai/dist/index.d.ts` (search for `declare function evaluate`). Fallback if Jev errors: the same questions answered by the cheap LLM with structured output.
 
@@ -313,13 +314,15 @@ Keep the UI simple: shadcn Card / Badge / Tabs / ScrollArea.
 
 ---
 
-## 10. Models (via OpenRouter; confirm IDs at the start)
+## 10. Models (via OpenRouter; set in `packages/core/src/models.ts`, override with env vars)
+
+Run `pnpm doctor` first: it checks Atlas, both agent models, and Jev. The OpenRouter key has a **$50 limit**.
 
 | Role | Choice | Why |
 |---|---|---|
-| Chat agent | cheap, fast, reliable tool calling | many calls |
-| Customer simulator | same cheap model | many calls |
-| Coach | strong reasoning model | a few calls per round |
+| Chat agent | `openai/gpt-6-luna` ($0.10/$0.50 per M; tool calls verified) | many calls |
+| Customer simulator | `openai/gpt-6-luna` (fallback `deepseek/deepseek-v4-flash`) | many calls |
+| Coach | `anthropic/claude-sonnet-5` ($2/$10 per M) | a few calls per round |
 | State / checks / labels | Jev `typesafe/jev-1.13` via `evaluationModel` | fast typed decisions at volume |
 | Summaries | cheap model | |
 

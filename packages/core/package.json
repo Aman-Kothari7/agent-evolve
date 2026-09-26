@@ -7,6 +7,7 @@
   "types": "./src/index.ts",
   "exports": { ".": "./src/index.ts" },
   "scripts": {
+    "doctor": "tsx --env-file=../../.env.local src/scripts/doctor.ts",
     "seed": "tsx --env-file=../../.env.local src/scripts/seed.ts",
     "simulate": "tsx --env-file=../../.env.local src/scripts/simulate.ts",
     "label": "tsx --env-file=../../.env.local src/scripts/label.ts",
