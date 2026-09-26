@@ -84,7 +84,7 @@ export function CoachClient({ goal, active }: { goal: string; active: number }) 
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             <p className="text-sm">{goal}</p>
-            <p className="text-xs text-muted-foreground">Locked: the coach can&apos;t edit the goal, turn limits, or the no-invented-discounts / no-invented-features rules.</p>
+            <p className="text-xs text-muted-foreground">Locked: the coach can&apos;t edit the goal, turn limits, or the locked rules (no promised credits or discounts, no guarantees), or the tool catalog.</p>
             <Button onClick={start} disabled={starting || running}>
               {running ? "Round in progress…" : starting ? "Starting…" : `Run one round on v${active}`}
             </Button>
@@ -154,10 +154,13 @@ function EventRow({ e }: { e: Ev }) {
     case "tool_call":
       return shell(
         "🔎",
-        <span>
-          <span className="font-mono text-xs font-medium">{String(p.tool)}</span>{" "}
-          <span className="break-all font-mono text-xs text-muted-foreground">{JSON.stringify(p.input)}</span>
-        </span>,
+        <div className="flex flex-col gap-1.5">
+          <span>
+            <span className="font-mono text-xs font-medium">{String(p.tool)}</span>{" "}
+            <span className="break-all font-mono text-xs text-muted-foreground">{JSON.stringify(p.input)}</span>
+          </span>
+          {p.output !== undefined && <ToolOutput tool={String(p.tool)} out={p.output} />}
+        </div>,
       );
     case "proposal": {
       const ops = (p.ops as ChangeOp[]) ?? [];
@@ -223,4 +226,59 @@ function EventRow({ e }: { e: Ev }) {
     default:
       return shell("•", <span className="font-mono text-xs">{JSON.stringify(p)}</span>);
   }
+}
+
+// What a coach query returned: search hits with their Jev labels, stats rows, or a transcript preview.
+function ToolOutput({ tool, out }: { tool: string; out: unknown }) {
+  const o = (out ?? {}) as Record<string, unknown>;
+  if (tool === "search") {
+    const results = (o.results as Record<string, unknown>[]) ?? [];
+    return (
+      <div className="flex flex-col gap-1 rounded border bg-background px-2 py-1.5 text-xs">
+        <div className="flex flex-wrap items-center gap-1.5 text-muted-foreground">
+          <Badge variant="outline" className="font-mono text-[10px]">{String(o.method ?? "search")}</Badge>
+          {Object.entries((o.filter as Record<string, unknown>) ?? {}).map(([k, v]) => (
+            <Badge key={k} variant="secondary" className="font-mono text-[10px]">{k}={String(v)}</Badge>
+          ))}
+          <span>{results.length} hits</span>
+        </div>
+        {results.map((r) => (
+          <div key={String(r.id)} className="flex flex-wrap items-baseline gap-1.5">
+            <span>{r.success ? "✅" : "❌"}</span>
+            <Link href={`/conversations/${String(r.id)}`} className="font-mono text-primary hover:underline">{String(r.id).slice(0, 8)}</Link>
+            {r.intent ? <Badge variant="outline" className="text-[10px]">{String(r.intent)}</Badge> : null}
+            {r.failureType ? <Badge variant="outline" className="text-[10px]">{String(r.failureType)}</Badge> : null}
+            {Array.isArray(r.foundBy) && r.foundBy.length > 0 && <span className="font-mono text-[10px] text-muted-foreground">{(r.foundBy as string[]).join(" · ")}</span>}
+            <span className="w-full text-muted-foreground">{String(r.summary ?? "")}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (tool === "stats" && Array.isArray(out)) {
+    return (
+      <div className="grid grid-cols-[auto_repeat(3,auto)] gap-x-3 rounded border bg-background px-2 py-1.5 font-mono text-[11px] tabular-nums">
+        <span className="text-muted-foreground">group</span><span className="text-muted-foreground">n</span><span className="text-muted-foreground">success</span><span className="text-muted-foreground">left</span>
+        {(out as Record<string, unknown>[]).map((r) => (
+          <Row key={String(r._id)} cells={[String(r._id ?? "—"), String(r.n), String(r.success), String(r.left)]} />
+        ))}
+      </div>
+    );
+  }
+  return (
+    <details className="rounded border bg-background px-2 py-1 text-xs">
+      <summary className="cursor-pointer text-muted-foreground">result</summary>
+      <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap text-[11px] text-muted-foreground">{JSON.stringify(out, null, 2)}</pre>
+    </details>
+  );
+}
+
+function Row({ cells }: { cells: string[] }) {
+  return (
+    <>
+      {cells.map((c, i) => (
+        <span key={i}>{c}</span>
+      ))}
+    </>
+  );
 }

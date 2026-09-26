@@ -4,7 +4,7 @@ import { applyProposal } from "../config/patch";
 import type { AgentConfig, Proposal } from "../config/schema";
 import { transcriptText } from "../labeler";
 import { chatModel, MODELS } from "../models";
-import { conversationStats, getConversation, listExperiments, logCoachEvent, searchConversations } from "../store";
+import { conversationStats, getConversation, hybridSearchConversations, listExperiments, logCoachEvent } from "../store";
 
 const FAILURE_TYPES = ["generic_answer", "wrong_fact", "scheduling_friction", "unnecessary_meeting", "missed_meeting", "none"] as const;
 
@@ -45,6 +45,28 @@ CURRENT CONFIG (v${config.version}):
 ${JSON.stringify(config, null, 1)}`;
 }
 
+// Compact version of a tool's output for the /coach timeline.
+function summarizeOutput(tool: string, out: unknown): unknown {
+  if (!out || typeof out !== "object") return out;
+  const o = out as Record<string, unknown>;
+  if (tool === "search")
+    return {
+      method: o.method,
+      filter: o.filter,
+      results: ((o.results as Record<string, unknown>[]) ?? []).map((r) => ({
+        id: r.id,
+        intent: (r.labels as Record<string, unknown> | undefined)?.intent,
+        failureType: (r.labels as Record<string, unknown> | undefined)?.failureType,
+        success: r.success,
+        foundBy: r.foundBy,
+        summary: String(r.summary ?? "").slice(0, 160),
+      })),
+    };
+  if (tool === "read") return { conversationId: (out as { conversationId?: string }).conversationId, labels: o.labels, success: (o.outcome as { success?: boolean } | undefined)?.success, transcriptPreview: String(o.transcript ?? "").slice(0, 400) };
+  if (Array.isArray(out)) return out.slice(0, 12);
+  return out;
+}
+
 export type CoachResult = { proposal: Proposal | null; newConfig: AgentConfig | null; steps: number };
 
 export async function runCoach(opts: { round: string; config: AgentConfig; newVersion: number }): Promise<CoachResult> {
@@ -64,18 +86,25 @@ export async function runCoach(opts: { round: string; config: AgentConfig; newVe
         conversationStats(groupBy, { configVersion: version ?? v, source: "sim", ...(onlyQualified ? { "outcome.qualified": true } : {}) }),
     }),
     search: tool({
-      description: "Semantic search over conversation summaries. Returns ids, summaries, labels, outcomes.",
+      description:
+        "Hybrid search over practice-conversation summaries: semantic (vector) + keyword (full-text), fused with $rankFusion. Pre-filter on Jev labels (failureType, intent, dropStage) and outcomes (success, qualified = needed a call). Returns ids, summaries, labels, outcomes, and which search found each.",
       inputSchema: z.object({
-        query: z.string(),
+        query: z.string().describe("What to look for, e.g. 'visitor asked for a call and gave up on picking a time'"),
+        version: z.number().int().optional().describe(`defaults to the active version (${v})`),
         failureType: z.enum(FAILURE_TYPES).optional(),
-        version: z.number().int().optional(),
+        intent: z.enum(["connection", "limits", "feature_setup", "migration", "production_incident", "learning", "other"]).optional(),
+        dropStage: z.enum(["greeting", "diagnosis", "answer", "scheduling", "none"]).optional(),
+        success: z.boolean().optional(),
+        qualified: z.boolean().optional().describe("true = visitor needed a call with an engineer"),
         k: z.number().int().min(1).max(10).optional(),
       }),
-      execute: async ({ query, failureType, version, k }) => {
-        const filter: Record<string, unknown> = { configVersion: version ?? v };
-        if (failureType) filter["labels.failureType"] = failureType;
-        const rows = await searchConversations(query, filter, k ?? 6);
-        return rows.map((r) => ({ id: r._id, summary: r.summary, labels: r.labels, success: r.outcome?.success, qualified: r.outcome?.qualified }));
+      execute: async ({ query, version, k, ...labels }) => {
+        const r = await hybridSearchConversations(query, { configVersion: version ?? v, source: "sim", ...labels }, k ?? 6);
+        return {
+          method: r.method,
+          filter: r.filter,
+          results: r.results.map((x) => ({ id: x._id, summary: x.summary, labels: x.labels, success: x.outcome?.success, needsCall: x.outcome?.qualified, foundBy: x.foundBy })),
+        };
       },
     }),
     read: tool({
@@ -84,7 +113,7 @@ export async function runCoach(opts: { round: string; config: AgentConfig; newVe
       execute: async ({ conversationId }) => {
         const c = await getConversation(conversationId);
         if (!c) return { error: "not found" };
-        return { transcript: transcriptText(c).slice(0, 6000), labels: c.labels, outcome: c.outcome, configVersion: c.configVersion };
+        return { conversationId, transcript: transcriptText(c).slice(0, 6000), labels: c.labels, outcome: c.outcome, configVersion: c.configVersion };
       },
     }),
     list_experiments: tool({
@@ -133,7 +162,12 @@ export async function runCoach(opts: { round: string; config: AgentConfig; newVe
     stopWhen: [stepCountIs(16), () => accepted !== null],
     onStepFinish: async (step) => {
       if (step.text?.trim()) await logCoachEvent(round, "thinking", { text: step.text.trim().slice(0, 1500) });
-      for (const c of step.toolCalls) if (c.toolName !== "propose") await logCoachEvent(round, "tool_call", { tool: c.toolName, input: c.input });
+      const results = (step as unknown as { toolResults?: { toolCallId: string; output: unknown }[] }).toolResults ?? [];
+      for (const c of step.toolCalls) {
+        if (c.toolName === "propose") continue;
+        const out = results.find((r) => r.toolCallId === c.toolCallId)?.output;
+        await logCoachEvent(round, "tool_call", { tool: c.toolName, input: c.input, output: summarizeOutput(c.toolName, out) });
+      }
     },
   });
 

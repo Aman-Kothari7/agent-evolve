@@ -162,6 +162,93 @@ export async function searchConversations(query: string, filter: Record<string, 
   return (await conversations()).aggregate(pipeline).toArray();
 }
 
+export const CONVERSATION_TEXT_INDEX = "conversations_text";
+
+export type ConversationFilter = {
+  configVersion?: number;
+  source?: string;
+  failureType?: string;
+  intent?: string;
+  dropStage?: string;
+  success?: boolean;
+  qualified?: boolean;
+};
+
+/**
+ * Hybrid search over conversation summaries: semantic ($vectorSearch, Automated Embedding) and
+ * keyword (Atlas Search) fused with $rankFusion, both pre-filtered on Jev labels and outcomes.
+ */
+export type HybridHit = {
+  _id: string;
+  summary?: string;
+  configVersion?: number;
+  personaId?: string;
+  labels?: Labels;
+  outcome?: Outcome;
+  score?: number;
+  foundBy: string[];
+};
+
+export async function hybridSearchConversations(query: string, f: ConversationFilter = {}, k = 6): Promise<{ method: string; filter: Record<string, unknown>; results: HybridHit[] }> {
+  const pairs: [string, unknown][] = [
+    ["configVersion", f.configVersion],
+    ["source", f.source],
+    ["labels.failureType", f.failureType],
+    ["labels.intent", f.intent],
+    ["labels.dropStage", f.dropStage],
+    ["outcome.success", f.success],
+    ["outcome.qualified", f.qualified],
+  ].filter(([, v]) => v !== undefined) as [string, unknown][];
+  const vectorFilter = Object.fromEntries(pairs);
+  const textFilter = pairs.map(([path, value]) => ({ equals: { path, value } }));
+
+  const semantic: Document[] = [
+    { $vectorSearch: { index: CONVERSATION_VECTOR_INDEX, path: "summary", query, numCandidates: 100, limit: 20, ...(pairs.length ? { filter: vectorFilter } : {}) } },
+  ];
+  const keyword: Document[] = [
+    { $search: { index: CONVERSATION_TEXT_INDEX, compound: { must: [{ text: { query, path: "summary" } }], ...(textFilter.length ? { filter: textFilter } : {}) } } },
+    { $limit: 20 },
+  ];
+  const project = { _id: 1, summary: 1, configVersion: 1, personaId: 1, labels: 1, outcome: 1 };
+  const col = await conversations();
+  try {
+    const rows = await col
+      .aggregate([
+        { $rankFusion: { input: { pipelines: { semantic, keyword } }, combination: { weights: { semantic: 1, keyword: 1 } }, scoreDetails: true } },
+        { $limit: k },
+        { $project: { ...project, score: { $meta: "score" }, scoreDetails: { $meta: "scoreDetails" } } },
+      ])
+      .toArray();
+    return {
+      method: "hybrid ($rankFusion: $vectorSearch + Atlas Search)",
+      filter: vectorFilter,
+      results: rows.map((r) => ({
+        ...r,
+        foundBy: ((r.scoreDetails?.details ?? []) as { inputPipelineName?: string; rank?: number }[])
+          .filter((d) => d.rank !== undefined)
+          .map((d) => `${d.inputPipelineName} #${d.rank}`),
+        scoreDetails: undefined,
+      })) as unknown as HybridHit[],
+    };
+  } catch (e) {
+    // Fallback: run both searches and fuse ranks in code (reciprocal rank fusion, k=60).
+    const [a, b] = await Promise.all([
+      col.aggregate([...semantic, { $project: project }]).toArray().catch(() => []),
+      col.aggregate([...keyword, { $project: project }]).toArray().catch(() => []),
+    ]);
+    const scores = new Map<string, { doc: Document; score: number; foundBy: string[] }>();
+    for (const [name, list] of [["semantic", a], ["keyword", b]] as const)
+      list.forEach((doc, i) => {
+        const cur = scores.get(String(doc._id)) ?? { doc, score: 0, foundBy: [] };
+        cur.score += 1 / (60 + i + 1);
+        cur.foundBy.push(`${name} #${i + 1}`);
+        scores.set(String(doc._id), cur);
+      });
+    const results = [...scores.values()].sort((x, y) => y.score - x.score).slice(0, k).map((x) => ({ ...x.doc, score: x.score, foundBy: x.foundBy })) as unknown as HybridHit[];
+    return { method: `hybrid (client-side RRF; $rankFusion failed: ${e instanceof Error ? e.message.slice(0, 80) : e})`, filter: vectorFilter, results };
+  }
+}
+
 // Counts and success rate per group, e.g. groupBy "labels.failureType".
 export async function conversationStats(groupBy: string, filter: Record<string, unknown> = {}) {
   return (await conversations())
