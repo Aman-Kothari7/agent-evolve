@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
-import { IBM_Plex_Mono, Schibsted_Grotesk } from "next/font/google";
+import { Archivo, IBM_Plex_Mono } from "next/font/google";
 import { getActiveVersion, listConfigDocs } from "@evolve/core";
 import { SideNav } from "@/components/side-nav";
 import "./globals.css";
 
-const ui = Schibsted_Grotesk({ variable: "--font-ui", subsets: ["latin"], weight: ["400", "500", "600", "700", "800"] });
+const ui = Archivo({ variable: "--font-ui", subsets: ["latin"], axes: ["wdth"] });
 const code = IBM_Plex_Mono({ variable: "--font-code", subsets: ["latin"], weight: ["400", "500", "600"] });
 
 export const metadata: Metadata = {

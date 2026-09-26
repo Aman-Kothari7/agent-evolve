@@ -9,6 +9,7 @@ try {
 const nextConfig: NextConfig = {
   transpilePackages: ["@evolve/core"],
   serverExternalPackages: ["mongodb"],
+  devIndicators: false,
 };
 
 export default nextConfig;

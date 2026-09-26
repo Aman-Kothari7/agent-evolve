@@ -54,8 +54,14 @@ export function CoachClient({ goal, active, initialVersions }: { goal: string; a
   }, []);
 
   useEffect(() => {
-    refresh().then((rs) => rs[0] && setRound((cur) => cur ?? rs[0]._id));
-  }, [refresh]);
+    // Inline fetch (not refresh()) so every setState happens in an async callback.
+    fetch("/api/coach/events")
+      .then((x) => x.json())
+      .then((r: { rounds: RoundInfo[] }) => {
+        setRounds(r.rounds);
+        if (r.rounds[0]) setRound((cur) => cur ?? r.rounds[0]._id);
+      });
+  }, []);
 
   useEffect(() => {
     if (!round) return;

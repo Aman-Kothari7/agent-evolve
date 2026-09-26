@@ -24,7 +24,7 @@ function systemPrompt(p: Persona): string {
     `If you get ${b.maxUnhelpfulReplies} vague or unhelpful replies in a row, give up and leave.`,
     b.readiness === "ready" ? "You want to move fast." : b.readiness === "browsing" ? "You're casually browsing." : "",
     "If the assistant shows buttons (markdown links like [label](action:...)), you can reply with exactly the label text to pick one.",
-    "End your message with [DONE] once your need is met. End with [LEAVE] if you give up. Otherwise add neither tag.",
+    "End your message with [DONE] once your need is met. If you wanted a call, your need is met only after the assistant confirms the call is booked; picking a time is not enough, so answer any follow-up questions first. End with [LEAVE] if you give up. Otherwise add neither tag.",
   ];
   return rules.filter(Boolean).join("\n");
 }

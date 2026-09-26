@@ -111,6 +111,7 @@ export function ComparePanel({ versions, changes, initial }: { versions: ConfigD
               </div>
               {s.turns.length === 0 && !pending && <p className="text-sm text-muted-foreground">Nothing sent yet.</p>}
               <Transcript
+                dense
                 turns={s.turns}
                 config={cfg}
                 changes={changes}
