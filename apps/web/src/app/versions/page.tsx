@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { listConfigDocs, type ConfigDoc } from "@evolve/core";
 import { AREA_DOT, ConfigDiff } from "@/components/config-diff";
-import { pct, successByVersion, type VersionScore } from "@/lib/stats";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -9,7 +8,7 @@ export const dynamic = "force-dynamic";
 const kept = (d: ConfigDoc) => d.status === "accepted" || d.status === "active";
 
 export default async function EvolutionPage() {
-  const [docs, scores] = await Promise.all([listConfigDocs(), successByVersion()]);
+  const docs = await listConfigDocs();
   const byVersion = new Map(docs.map((d) => [d.version, d]));
   const line = docs.filter(kept);
   const rejected = docs.filter((d) => d.status === "rejected");
@@ -25,7 +24,7 @@ export default async function EvolutionPage() {
         </p>
       </header>
 
-      <Lineage line={line} rejected={rejected} scores={scores} />
+      <Lineage line={line} rejected={rejected} />
 
       <ol className="flex flex-col gap-5">
         {newestFirst.map((d, i) => (
@@ -36,7 +35,7 @@ export default async function EvolutionPage() {
   );
 }
 
-function Lineage({ line, rejected, scores }: { line: ConfigDoc[]; rejected: ConfigDoc[]; scores: Map<number, VersionScore> }) {
+function Lineage({ line, rejected }: { line: ConfigDoc[]; rejected: ConfigDoc[] }) {
   return (
     <div className="overflow-x-auto rounded-2xl border bg-card px-6 py-5">
       <div className="flex min-w-max items-start">
@@ -64,11 +63,6 @@ function Lineage({ line, rejected, scores }: { line: ConfigDoc[]; rejected: Conf
                     "baseline"
                   )}
                 </span>
-                {scores.get(d.version) && (
-                  <span className="font-mono text-xs font-semibold" title={`${scores.get(d.version)!.success}/${scores.get(d.version)!.n} practice chats met the goal`}>
-                    {pct(scores.get(d.version)!.rate)} goal met
-                  </span>
-                )}
                 {branches.map((b) => (
                   <a key={b._id} href={`#v${b.version}`} className="flex flex-col items-center">
                     <span className="h-4 w-px border-l border-dashed border-fail/60" />

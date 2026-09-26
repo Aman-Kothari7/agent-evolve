@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { getActiveVersion, listConfigDocs, listPersonas, type ChangeOp, type ConfigDoc } from "@evolve/core";
 import { Frame } from "@/components/frame";
-import { pct, successByVersion } from "@/lib/stats";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -39,11 +38,9 @@ function describe(doc: ConfigDoc): string {
 const TICKER = ["Versioned in Atlas", "Jev labels every chat", "$rankFusion search", "One change per round", "Tested before it ships", "Locked guardrails", "No hand edits"];
 
 export default async function OverviewPage() {
-  const [docs, active, scores, practice] = await Promise.all([listConfigDocs(), getActiveVersion(), successByVersion(), listPersonas("train")]);
+  const [docs, active, practice] = await Promise.all([listConfigDocs(), getActiveVersion(), listPersonas("train")]);
   const line = docs.filter((d) => d.status === "accepted" || d.status === "active");
   const rejected = docs.filter((d) => d.status === "rejected");
-  const first = scores.get(1);
-  const latest = scores.get(active);
 
   return (
     <div className="mx-auto flex max-w-[1320px] flex-col gap-6">
@@ -76,40 +73,20 @@ export default async function OverviewPage() {
         {/* Result + versions */}
         <section className="flex flex-col justify-between gap-10 p-6">
           <div>
-            <p className="label flex justify-between text-muted-foreground">
-              <span>Goal met on practice visitors</span>
-              <span>[01]</span>
-            </p>
-            <div className="mt-6 flex items-end gap-6">
-              <span className="display text-5xl text-muted-foreground/50 line-through decoration-2">{first ? pct(first.rate) : "–"}</span>
-              <span className="display text-[9rem] leading-[0.8]">{latest ? pct(latest.rate) : "–"}</span>
-              <span className="mb-3 size-4 bg-agent" aria-hidden />
-            </div>
-            <p className="mt-5 max-w-sm text-[13px] leading-snug text-muted-foreground">
-              Up from v1. Every change came from the coach and passed a test first. No one edited the config by hand.
-            </p>
-          </div>
-
-          <div>
             <p className="label flex justify-between border-b pb-2 text-muted-foreground">
               <span>Versions</span>
-              <span>[02]</span>
+              <span>[01]</span>
             </p>
             <ol>
               {line.map((d) => {
-                const sc = scores.get(d.version);
                 const live = d.version === active;
                 return (
-                  <li key={d._id} className="grid grid-cols-[3rem_1fr_7rem_3rem] items-center gap-4 border-b py-3">
+                  <li key={d._id} className="grid grid-cols-[3rem_1fr] items-center gap-4 border-b py-3">
                     <span className={cn("display text-2xl", live && "text-agent")}>v{d.version}</span>
                     <span className="text-[13px] font-medium uppercase leading-tight tracking-wide">
                       {describe(d)}
                       {live && <span className="label ml-2 bg-agent px-1.5 py-0.5 text-white">live</span>}
                     </span>
-                    <span className="relative h-2 bg-muted" aria-hidden>
-                      <span className={cn("absolute inset-y-0 left-0", live ? "bg-agent" : "bg-ink")} style={{ width: `${(sc?.rate ?? 0) * 100}%` }} />
-                    </span>
-                    <span className="text-right font-mono text-sm font-semibold">{sc ? pct(sc.rate) : "–"}</span>
                   </li>
                 );
               })}
@@ -129,7 +106,7 @@ export default async function OverviewPage() {
         <section aria-label="The improvement loop" className="flex flex-col gap-4 border-t p-6 lg:border-l lg:border-t-0">
           <p className="label flex justify-between text-muted-foreground">
             <span>The loop</span>
-            <span>[03]</span>
+            <span>[02]</span>
           </p>
           <div className="flex flex-1 items-center justify-center py-4">
             <Loop version={active} visitors={practice.length} />
