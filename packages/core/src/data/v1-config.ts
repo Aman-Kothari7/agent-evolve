@@ -23,6 +23,7 @@ export const V1_CONFIG: AgentConfig = {
   tools: {
     search_docs: { kind: "builtin", description: "Searches the documentation.", enabled: false, requires: [], introducedIn: 1 },
     get_slots: { kind: "builtin", description: "Returns open meeting times.", enabled: false, requires: [], introducedIn: 1 },
+    lookup_limits: { kind: "builtin", description: "Looks up limits.", enabled: false, requires: [], introducedIn: 1 },
     book_meeting: { kind: "builtin", description: "Books a meeting.", enabled: true, requires: [], introducedIn: 1 },
     send_signup_link: { kind: "builtin", description: "Sends a signup link.", enabled: true, requires: [], introducedIn: 1 },
   },

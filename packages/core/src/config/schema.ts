@@ -16,6 +16,8 @@ export const StateField = z.object({
 });
 
 const toolCommon = {
+  // Name the agent sees for this tool (defaults to the config key). The implementation never changes.
+  name: z.string().regex(/^[a-z][a-z0-9_]{1,40}$/).optional(),
   description: z.string(),
   enabled: z.boolean().default(true),
   requires: z.array(z.string()).default([]),
@@ -127,7 +129,7 @@ export const EDITABLE_PATHS: RegExp[] = [
   /^instructions\.persona$/,
   /^instructions\.sections(\.\d+(\.(title|text))?)?$/,
   /^state\.[a-z_]+$/,
-  /^tools\.[a-z_]+(\.(description|enabled|requires|maxUses))?$/,
+  /^tools\.[a-z_]+\.(name|description|enabled|requires|maxUses)$/,
   /^rules(\.\d+)?$/,
   /^context(\.\d+)?$/,
   /^widgets\.[a-z_]+(\.(description|template|dataFrom|requires|maxPerChat))?$/,

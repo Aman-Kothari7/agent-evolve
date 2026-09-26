@@ -90,6 +90,16 @@ export function applyProposal(base: AgentConfig, proposal: Pick<Proposal, "ops" 
 
   // Cross-reference checks the schema can't express.
   const cfg = parsed.data;
+  const baseTools = Object.keys(base.tools).sort().join(",");
+  if (Object.keys(cfg.tools).sort().join(",") !== baseTools)
+    errors.push("Tools can't be created or removed. Turn existing tools on or off with tools.<name>.enabled instead.");
+  for (const [key, t] of Object.entries(cfg.tools)) {
+    if (base.tools[key] && t.kind !== base.tools[key].kind) errors.push(`tools.${key}: a tool's implementation can't change`);
+    if (t.kind === "template" && base.tools[key]?.kind === "template" && JSON.stringify({ ...t, name: 0, description: 0, enabled: 0, requires: 0, maxUses: 0, introducedIn: 0, reason: 0 }) !== JSON.stringify({ ...base.tools[key], name: 0, description: 0, enabled: 0, requires: 0, maxUses: 0, introducedIn: 0, reason: 0 }))
+      errors.push(`tools.${key}: a tool's implementation can't change`);
+  }
+  const exposed = Object.entries(cfg.tools).map(([k, t]) => t.name ?? k);
+  if (new Set(exposed).size !== exposed.length || exposed.includes("render_widget")) errors.push("Tool names must be unique and can't be render_widget");
   const toolNames = new Set(Object.keys(cfg.tools));
   const stateNames = new Set(Object.keys(cfg.state));
   for (const [name, t] of Object.entries(cfg.tools)) {

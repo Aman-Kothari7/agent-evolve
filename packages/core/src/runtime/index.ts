@@ -118,9 +118,9 @@ export async function runTurn(input: RunTurnInput): Promise<RunTurnResult> {
     if (t.kind === "builtin") {
       const b = BUILTINS[name];
       if (!b) continue;
-      tools[name] = tool({ description: t.description, inputSchema: b.input, execute: wrap(name, (a) => b.run(a, { conversationId })) });
+      tools[t.name ?? name] = tool({ description: t.description, inputSchema: b.input, execute: wrap(name, (a) => b.run(a, { conversationId })) });
     } else {
-      tools[name] = tool({ description: t.description, inputSchema: templateInputSchema(t), execute: wrap(name, (a) => runTemplateTool(t, a)) });
+      tools[t.name ?? name] = tool({ description: t.description, inputSchema: templateInputSchema(t), execute: wrap(name, (a) => runTemplateTool(t, a)) });
     }
   }
 

@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { TemplateTool } from "../config/schema";
 import { executeTemplateTool } from "../config/template";
 import { GET_STARTED_URL, SIGNUP_URL } from "../data/business";
-import { findOpenSlot, getOpenSlots, insertBooking, markSlotBooked, searchKnowledge } from "../store";
+import { findOpenSlot, getDb, getOpenSlots, insertBooking, markSlotBooked, searchKnowledge } from "../store";
 
 export type ToolCtx = { conversationId: string };
 
@@ -34,6 +34,17 @@ export const BUILTINS: Record<string, Builtin> = {
       await markSlotBooked(slot.slotId as string);
       await insertBooking({ conversationId: ctx.conversationId, slot: slot.label as string, name: input.name as string | undefined, email: input.email as string | undefined });
       return { booked: true, slot: slot.label };
+    },
+  },
+  lookup_limits: {
+    input: z.object({
+      tier: z.enum(["free", "flex", "dedicated"]).optional().describe("Cluster tier to look up"),
+      feature: z.string().optional().describe("Feature name, e.g. $rerank"),
+    }),
+    run: async (input) => {
+      const col = (await getDb()).collection("limits");
+      const filter = input.tier ? { kind: "tier", tier: input.tier } : input.feature ? { kind: "feature", feature: { $regex: String(input.feature).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" } } : {};
+      return { rows: await col.find(filter, { projection: { _id: 0 } }).toArray() };
     },
   },
   send_signup_link: {

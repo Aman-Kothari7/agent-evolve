@@ -10,10 +10,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 const CASE_TITLES: Record<string, string> = {
-  C1: "Email gate",
-  C2: "Wrong math",
-  C3: "Scheduling ping-pong",
-  C4: "Unqualified booking",
+  D2: "Migration → engineer call",
+  D3: "Free-tier index limit",
 };
 
 export function ReplayClient({ personas, versions, conversations, active }: { personas: Persona[]; versions: ConfigDoc[]; conversations: Conversation[]; active: number }) {
@@ -75,7 +73,7 @@ export function ReplayClient({ personas, versions, conversations, active }: { pe
               {p.caseId} · {CASE_TITLES[p.caseId ?? ""] ?? p.segment}
             </div>
             <div className="text-xs text-muted-foreground">
-              {p.hidden.role}, {p.hidden.teamSize} seats · {p.qualified ? "qualified" : "not qualified"}
+              {p.hidden.role}, {p.hidden.company} · {p.qualified ? "needs a call" : "self-serve"}
             </div>
           </button>
         ))}
@@ -114,10 +112,10 @@ export function ReplayClient({ personas, versions, conversations, active }: { pe
                   <div className="ml-auto flex flex-wrap gap-1">
                     <Badge className={cn("border-0", o.success ? "bg-emerald-600 text-white" : "bg-rose-600 text-white")}>{o.success ? "✓ goal met" : "✗ goal missed"}</Badge>
                     {o.booked && <Badge variant="outline">booked</Badge>}
-                    {o.trialSent && <Badge variant="outline">trial sent</Badge>}
+                    {o.trialSent && <Badge variant="outline">signup link sent</Badge>}
                     {o.left && <Badge variant="outline">customer left</Badge>}
-                    {o.quoteCorrect === false && <Badge variant="destructive">wrong quote</Badge>}
-                    {o.quoteCorrect === true && <Badge variant="outline">quote correct</Badge>}
+                    {o.quoteCorrect === false && <Badge variant="destructive">wrong or missing fact</Badge>}
+                    {o.quoteCorrect === true && <Badge variant="outline">facts correct</Badge>}
                   </div>
                 )}
               </CardHeader>

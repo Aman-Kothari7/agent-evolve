@@ -9,15 +9,6 @@ const ACCESS_LIST = ["access list|network access|allowlist|whitelist|0\\.0\\.0\\
 // The demo visitors. Fixed openings so v1 and later versions are compared on the same input.
 export const DEMO_PERSONAS: Persona[] = [
   make({
-    _id: "demo_d1_connection", split: "demo", caseId: "D1", segment: "connection_issue",
-    opening: "My app can't connect to Atlas anymore. I keep getting ECONNRESET and 'server selection timed out'. It worked yesterday.",
-    hidden: { name: "Sam Rivera", role: "Backend developer", company: "Loopcart", teamSize: 12, tier: "dedicated",
-      situation: "You switched to a coworking space's Wi-Fi today. Your credentials and connection string are correct.",
-      rootCause: "Your new network's IP is not on the Atlas IP access list (Security → Network Access)." },
-    behavior: { maxUnhelpfulReplies: 1, maxSchedulingExchanges: 2, readiness: "evaluating" },
-    success: { kind: "mentions", all: ACCESS_LIST, forbid: [] },
-  }),
-  make({
     _id: "demo_d2_migration", split: "demo", caseId: "D2", segment: "migration",
     opening: "We're moving a 4 TB fintech database from Postgres to MongoDB and need multi-region plus compliance. Can we talk to someone?",
     hidden: { name: "Priya Raman", role: "VP of Engineering", company: "Ledgerline", teamSize: 180, tier: "none",

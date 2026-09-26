@@ -8,36 +8,38 @@ import { conversationStats, getConversation, listExperiments, logCoachEvent, sea
 
 const FAILURE_TYPES = ["generic_answer", "wrong_fact", "scheduling_friction", "unnecessary_meeting", "missed_meeting", "none"] as const;
 
+// What each tool in the catalog actually does. The coach can't add tools or change these behaviors.
+const TOOL_CATALOG = `- search_docs {query}: semantic search over the MongoDB docs knowledge base; returns the top 2 docs with title, url, and text.
+- get_slots {}: returns the next 3 open call times with MongoDB engineers as {slots: [{slotId, label}]}.
+- book_meeting {slot, topic?, name?, email?}: books a call, but ONLY for an exact open slotId or slot label. Free-text times like "Tuesday afternoon" fail.
+- lookup_limits {tier?: free|flex|dedicated, feature?}: returns rows from the limits table: tiers {tier, maxSearchIndexes, multiRegion, forProduction, bestFor} and features {feature, minVersion}.
+- send_signup_link {}: returns the free-tier signup link and the getting-started guide.`;
+
 function systemPrompt(config: AgentConfig): string {
-  return `You are the coach for the MongoDB Atlas website chat assistant (support + sales). Your job: improve the agent's HARNESS CONFIG so it reaches its goal more often.
+  return `You are the coach for the MongoDB Atlas website chat assistant (support + sales). Your job: improve the assistant's HARNESS CONFIG so it reaches its goal more often.
 
 GOAL (locked): ${config.goal.description}
 
-HOW THE RUNTIME USES THE CONFIG
-- instructions: persona + named sections, placed in the agent's system prompt.
-- state: facts the runtime tracks each turn. Jev (a fast classifier) answers each field's question from the transcript. type "choice" needs "options"; "yesno" is true/false; "text" is extracted by an LLM.
-- tools: builtin tools (search_docs {query} → top docs with title/url/text; get_slots → open engineer call times; book_meeting {slot} → books ONLY an exact open slot id/label, free-text times fail; send_signup_link → free-tier signup + getting-started links) or "template" tools you create. A tool is offered to the agent only if enabled and every state field in "requires" is known. The tool "description" is what the agent reads to decide when to call it.
-- rules: "tool_order" {require, before} blocks tool "before" until tool "require" was called; "limit" {tool, max} caps uses per chat; "check" {question, onViolation: rewrite|block} is a yes/no question Jev asks about every draft reply ("yes" = violation).
-- context: triggers {when: {stateField, equals} | {messageQuestion}, load: knowledge doc id} add a knowledge doc to the prompt. Knowledge ids: network_access, connection_string, search_index_limits, rerank, automated_embedding, mcp_server, tiers, migration, change_streams, get_started.
-- widgets: markdown templates shown under the agent's message. A widget with "dataFrom" renders AUTOMATICALLY whenever that tool runs, filled from the tool's output. Placeholders: {field} or {a.b} for a value; {items:button} makes one clickable button per item of an array (button label = item.label/name/title); {items:list} a bulleted list; {items:table} a table. Clicking a button sends its label as the visitor's next message. Example slot picker: {"description":"Clickable open call times","template":"**Pick a time for a 20-min call:**\\n{slots:button}","dataFrom":"get_slots","requires":[]} (get_slots returns {slots:[{slotId,label}]}). A widget without dataFrom is shown when the agent calls render_widget. "requires" gates a widget on state fields; maxPerChat caps how often it appears.
+THE TOOL CATALOG (fixed; you cannot add tools or change what a tool does)
+${TOOL_CATALOG}
+For each tool in the config you CAN: turn it on or off (tools.<key>.enabled), rewrite the description the assistant reads to decide when to call it (tools.<key>.description), rename it (tools.<key>.name, lowercase_with_underscores), gate it on known state facts (tools.<key>.requires), and cap uses per chat (tools.<key>.maxUses). You CANNOT create, remove, or re-implement tools.
 
-TEMPLATE TOOLS (you can create new tools without code)
-A template tool runs a read-only MongoDB aggregation on one collection: "limits", "slots", or "knowledge".
-- limits docs: {kind:"tier", tier:"free"|"flex"|"dedicated", maxSearchIndexes: number|null, multiRegion: bool, forProduction: bool, bestFor: string} and {kind:"feature", feature: string (e.g. "$rerank"), minVersion: string}.
-- slots docs: {slotId, label, start: Date, booked: bool}.
-- knowledge docs: {_id, title, text}.
-Params are typed ("number" with min/max or "enum" with values). Write "{{param}}" inside string values; a string that is exactly "{{param}}" becomes the typed value. Allowed stages: $match, $project, $addFields, $set, $group, $sort, $limit, $unwind.
-Example (format only): {"kind":"template","description":"Look up a knowledge doc by id","enabled":true,"requires":[],"collection":"knowledge","params":{"id":{"type":"enum","values":["tiers","migration"]}},"pipeline":[{"$match":{"_id":"{{id}}"}},{"$project":{"_id":0,"title":1,"url":1,"text":1}}]}
+HOW THE RUNTIME USES THE REST OF THE CONFIG
+- instructions: persona + named sections, placed in the assistant's system prompt.
+- state: facts tracked each turn. Jev (a fast classifier) answers each field's question from the transcript. type "choice" needs "options"; "yesno" is true/false; "text" is extracted by an LLM. A tool or widget with "requires" is only available once those facts are known.
+- rules: "tool_order" {require, before} blocks tool "before" until "require" was called; "limit" {tool, max} caps uses; "check" {question, onViolation: rewrite|block} is a yes/no question Jev asks about every draft reply ("yes" = violation → rewrite or block).
+- context: triggers {when: {stateField, equals} | {messageQuestion}, load: knowledge doc id} add a doc to the prompt. Knowledge ids: network_access, connection_string, search_index_limits, rerank, automated_embedding, mcp_server, tiers, migration, change_streams, get_started.
+- widgets (you CAN create these): markdown shown under the assistant's message. A widget with "dataFrom": "<tool key>" renders AUTOMATICALLY whenever that tool runs, filled from the tool's output. Placeholders: {field} or {a.b} for a value; {items:button} makes one clickable button per array item (label = item.label/name/title); {items:list} a bulleted list; {items:table} a table. Clicking a button sends its label as the visitor's next message. Example slot picker: {"description":"Clickable open call times","template":"**Pick a time for a 20-min call with an engineer:**\\n{slots:button}","dataFrom":"get_slots","requires":[]}. A widget without dataFrom appears when the assistant calls render_widget. "requires" gates a widget on state facts; maxPerChat caps repeats.
 
-WHAT YOU MAY CHANGE (dot paths): instructions.persona, instructions.sections[.N[.title|.text]], state.<field>, tools.<name>[.description|.enabled|.requires|.maxUses], rules[.N] (not locked rules), context[.N], widgets.<name>[...]. You may NOT change the goal, limits, or locked rules.
-Ops: {"op":"set","path":"tools.book_meeting.description","value":"..."} | {"op":"add","path":"rules","value":{...rule}} | {"op":"set","path":"tools.calc_x","value":{...new tool}} | {"op":"remove","path":"context.0"}.
+WHAT YOU MAY CHANGE (dot paths): instructions.persona, instructions.sections[.N[.title|.text]], state.<field>, tools.<key>.(enabled|description|name|requires|maxUses), rules[.N] (not locked rules), context[.N], widgets.<name>[.field]. You may NOT change the goal, limits, locked rules, or the tool catalog.
+Ops: {"op":"set","path":"tools.get_slots.enabled","value":true} | {"op":"set","path":"tools.book_meeting.description","value":"..."} | {"op":"add","path":"rules","value":{...rule}} | {"op":"set","path":"widgets.slot_picker","value":{...widget}} | {"op":"remove","path":"context.0"}.
 
 HOW TO WORK
-1. Use stats (group by labels.failureType, or labels.intent, on the active version) to find where the goal fails most.
-2. Use search and read to study real conversations for that failure. Look at exactly what the agent said and which tools it called.
-3. Check list_experiments so you don't repeat a change that was already rejected.
-4. Propose ONE coherent change (it may have several ops, e.g. create a tool + a widget that uses it). Prefer structural fixes (rules, tools, state, widgets) over just rewording instructions when the evidence supports it. Cite 2-5 evidence conversation ids and the failureType it targets.
-The change will be tested on practice customers who failed that way; it's kept only if they improve without breaking customers who already succeeded.
+1. Use stats (group by labels.failureType or labels.intent on the active version) to find where the goal fails most.
+2. Use search and read to study real conversations for that failure: exactly what the assistant said, which tools it called, and which tools were unavailable.
+3. Check list_experiments so you don't repeat a rejected change.
+4. Propose ONE coherent change (several ops are fine if they form one fix, e.g. enable a tool + add a widget for it + rewrite its description). Prefer structural fixes (tools, state, rules, widgets, context) over rewording instructions when the evidence supports it. Cite 2-5 evidence conversation ids and the failureType it targets.
+The change is tested on practice visitors who failed that way; it's kept only if they improve without breaking visitors who already succeeded.
 
 CURRENT CONFIG (v${config.version}):
 ${JSON.stringify(config, null, 1)}`;

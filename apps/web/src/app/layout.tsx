@@ -25,7 +25,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <header className="sticky top-0 z-10 border-b bg-background/90 backdrop-blur">
           <div className="mx-auto flex h-12 max-w-7xl items-center gap-6 px-4">
             <Link href="/" className="font-semibold tracking-tight">
-              Agent Evolve <span className="font-normal text-muted-foreground">· Acme Analytics</span>
+              Agent Evolve <span className="font-normal text-muted-foreground">· MongoDB Atlas assistant (demo)</span>
             </Link>
             <nav className="flex gap-1 text-sm">
               {NAV.map((n) => (

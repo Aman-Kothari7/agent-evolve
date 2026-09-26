@@ -11,10 +11,10 @@ import { AREA_STYLE } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 
 const SUGGESTIONS = [
-  "How much would Acme cost for a team of about 40 people?",
-  "We have 120 people, need SSO, and would pay annually. What's the yearly price?",
-  "We use Snowflake and HubSpot and want a demo this week.",
-  "I'm a solo founder. Can I talk to someone?",
+  "We're moving a 4 TB fintech database from Postgres to MongoDB and need multi-region plus compliance. Can we talk to someone?",
+  "How many vector search indexes can I create on the free tier?",
+  "My app can't connect to Atlas anymore. I keep getting ECONNRESET. It worked yesterday.",
+  "I'm doing a class project with MongoDB. Can I get a call with someone to help me set up?",
 ];
 
 export function ChatClient({ versions, active }: { versions: ConfigDoc[]; active: number }) {
@@ -94,7 +94,7 @@ export function ChatClient({ versions, active }: { versions: ConfigDoc[]; active
     <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
       <Card className="flex h-[calc(100vh-7.5rem)] flex-col gap-0 py-0">
         <div className="flex items-center gap-3 border-b px-4 py-2.5">
-          <div className="text-sm font-medium">Acme Analytics · pricing page chat</div>
+          <div className="text-sm font-medium">MongoDB Atlas · website assistant <span className="font-normal text-muted-foreground">(hackathon demo, not an official MongoDB assistant)</span></div>
           <div className="ml-auto flex items-center gap-2">
             <label className="text-xs text-muted-foreground" htmlFor="version">
               Config
