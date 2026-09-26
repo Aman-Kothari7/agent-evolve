@@ -1,43 +1,61 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { ChangeArea, ChangeOp } from "@evolve/core";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ChangeOp, ConfigDoc } from "@evolve/core";
+import { ConfigDiff, AREA_DOT } from "@/components/config-diff";
 import { Markdown } from "@/components/transcript";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AREA_STYLE } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 
 type Ev = { _id: string; round: string; type: string; ts: string; payload: Record<string, unknown> };
 type RoundInfo = { _id: string; start: string; end: string; n: number; types: string[] };
+type Phase = { key: string; title: string; blurb: string; events: Ev[] };
 
 const isDone = (evs: Ev[]) => evs.some((e) => e.type === "decision" || (e.type === "error" && e.payload.stage === "round"));
+const clock = (ts: string) => new Date(ts).toLocaleTimeString("en-US", { minute: "2-digit", second: "2-digit" });
 
-export function CoachClient({ goal, active }: { goal: string; active: number }) {
+function phaseOf(e: Ev): string {
+  const p = e.payload;
+  if (e.type === "test_progress") return p.stage === "baseline" ? "baseline" : "test";
+  if (e.type === "thinking" && String(p.text ?? "").startsWith("Round started")) return "baseline";
+  if (e.type === "tool_call") return p.tool === "stats" ? "diagnose" : "investigate";
+  if (e.type === "thinking") return "investigate";
+  if (e.type === "proposal" || (e.type === "error" && p.stage === "validate")) return "propose";
+  if (e.type === "decision" || e.type === "error") return "decide";
+  return "investigate";
+}
+
+const PHASES: Omit<Phase, "events">[] = [
+  { key: "baseline", title: "Baseline", blurb: "Practice visitors talk to the live config. Jev labels every conversation." },
+  { key: "diagnose", title: "Diagnose", blurb: "Aggregations over the labeled conversations show where the goal fails." },
+  { key: "investigate", title: "Investigate", blurb: "Hybrid search ($rankFusion) and full transcripts for the failing cases." },
+  { key: "propose", title: "Propose", blurb: "One typed change to the harness config, with evidence." },
+  { key: "test", title: "Test", blurb: "Visitors who failed that way, plus ones that must not break." },
+  { key: "decide", title: "Decide", blurb: "Kept as a new version, or rejected with the reason." },
+];
+
+export function CoachClient({ goal, active, initialVersions }: { goal: string; active: number; initialVersions: ConfigDoc[] }) {
   const [rounds, setRounds] = useState<RoundInfo[]>([]);
   const [round, setRound] = useState<string | null>(null);
   const [events, setEvents] = useState<Ev[]>([]);
+  const [versions, setVersions] = useState(initialVersions);
+  const [liveVersion, setLiveVersion] = useState(active);
   const [starting, setStarting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
 
-  const loadRounds = useCallback(async () => {
-    const r = await fetch("/api/coach/events").then((x) => x.json());
+  const refresh = useCallback(async () => {
+    const [r, v] = await Promise.all([fetch("/api/coach/events").then((x) => x.json()), fetch("/api/versions").then((x) => x.json())]);
     setRounds(r.rounds);
+    setVersions(v.versions);
+    setLiveVersion(v.active);
     return r.rounds as RoundInfo[];
   }, []);
 
   useEffect(() => {
-    fetch("/api/coach/events")
-      .then((x) => x.json())
-      .then((r: { rounds: RoundInfo[] }) => {
-        setRounds(r.rounds);
-        if (r.rounds[0]) setRound((cur) => cur ?? r.rounds[0]._id);
-      });
-  }, []);
+    refresh().then((rs) => rs[0] && setRound((cur) => cur ?? rs[0]._id));
+  }, [refresh]);
 
-  // Poll the selected round until it has a decision.
   useEffect(() => {
     if (!round) return;
     let stop = false;
@@ -47,238 +65,379 @@ export function CoachClient({ goal, active }: { goal: string; active: number }) 
       if (stop) return;
       setEvents(r.events);
       if (!isDone(r.events)) timer = setTimeout(tick, 1500);
-      else loadRounds();
+      else refresh();
     };
     tick();
     return () => {
       stop = true;
       clearTimeout(timer);
     };
-  }, [round, loadRounds]);
+  }, [round, refresh]);
 
+  // Follow the log only while a round is live; finished rounds open at the top.
+  const live = !!round && events.length > 0 && !isDone(events);
   useEffect(() => {
-    bottom.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }, [events.length]);
+    if (live) bottom.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [events.length, live]);
 
   async function start() {
     setStarting(true);
+    setError(null);
     try {
       const r = await fetch("/api/coach/round", { method: "POST" }).then((x) => x.json());
       setEvents([]);
       setRound(r.round);
-      loadRounds();
+      refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setStarting(false);
     }
   }
 
   const running = !!round && events.length > 0 && !isDone(events);
-  const progress = [...events].reverse().find((e) => e.type === "test_progress" && typeof e.payload.of === "number");
+  const phases: Phase[] = useMemo(() => PHASES.map((p) => ({ ...p, events: events.filter((e) => phaseOf(e) === p.key) })), [events]);
+  const current = running ? [...phases].reverse().find((p) => p.events.length)?.key : undefined;
+
+  const proposal = events.find((e) => e.type === "proposal")?.payload;
+  const testStart = events.find((e) => e.type === "test_progress" && e.payload.stage === "start")?.payload;
+  const decision = events.find((e) => e.type === "decision")?.payload;
+  const candidate = Number(proposal?.candidateVersion ?? testStart?.version ?? decision?.version) || undefined;
+  const baseVersion = Number(proposal?.baseVersion) || versions.find((v) => v.version === candidate)?.parentVersion || undefined;
+  const base = versions.find((v) => v.version === baseVersion)?.config;
+  const runs = events.filter((e) => e.type === "test_progress" && typeof e.payload.done === "number").map((e) => e.payload);
+  const fatal = events.find((e) => e.type === "error" && e.payload.stage === "round")?.payload;
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
-      <div className="flex flex-col gap-4">
-        <Card size="sm">
-          <CardHeader>
-            <CardTitle>Goal</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            <p className="text-sm">{goal}</p>
-            <p className="text-xs text-muted-foreground">Locked: the coach can&apos;t edit the goal, turn limits, or the locked rules (no promised credits or discounts, no guarantees), or the tool catalog.</p>
-            <Button onClick={start} disabled={starting || running}>
-              {running ? "Round in progress…" : starting ? "Starting…" : `Run one round on v${active}`}
-            </Button>
-          </CardContent>
-        </Card>
-        <Card size="sm">
-          <CardHeader>
-            <CardTitle>Recent rounds</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-1">
-            {rounds.length === 0 && <p className="text-xs text-muted-foreground">No rounds yet.</p>}
-            {rounds.map((r) => (
+    <div className="mx-auto flex max-w-[1400px] flex-col gap-6">
+      <header className="flex flex-wrap items-end gap-x-8 gap-y-4">
+        <div className="max-w-2xl">
+          <p className="eyebrow">Coach · recursive harness improvement</p>
+          <h1 className="display mt-1 text-4xl">The coach rewrites the assistant&apos;s harness.</h1>
+          <p className="mt-2 text-sm text-muted-foreground">Goal (locked): {goal}</p>
+        </div>
+        <div className="ml-auto flex flex-col items-end gap-2">
+          <button
+            onClick={start}
+            disabled={starting || running}
+            className="inline-flex items-center gap-2 rounded-full bg-coach px-5 py-2.5 text-sm font-semibold text-white shadow-sm outline-none transition hover:brightness-105 focus-visible:ring-2 focus-visible:ring-coach/50 disabled:opacity-60"
+          >
+            <span className={cn("size-2 rounded-full bg-white", running && "pulse-dot")} />
+            {running ? "Round in progress" : starting ? "Starting…" : `Run a round on v${liveVersion}`}
+          </button>
+          {error && <p className="text-xs text-fail">{error}</p>}
+        </div>
+      </header>
+
+      {rounds.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="eyebrow mr-1">Rounds</span>
+          {rounds.map((r) => {
+            const done = r.types.includes("decision");
+            return (
               <button
                 key={r._id}
                 onClick={() => setRound(r._id)}
-                className={cn("flex items-center justify-between rounded-md px-2 py-1.5 text-left text-xs hover:bg-muted", r._id === round && "bg-muted font-medium")}
+                className={cn(
+                  "rounded-full border px-3 py-1 font-mono text-[11px] outline-none transition focus-visible:ring-2 focus-visible:ring-ring",
+                  r._id === round ? "border-ink bg-ink text-white" : "bg-card hover:border-ink/40",
+                )}
               >
-                <span>{new Date(r.start).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" })}</span>
-                <span className="text-muted-foreground">
-                  {r.n} events{r.types.includes("decision") ? "" : " · running"}
-                </span>
+                {new Date(r.start).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                {!done && <span className="ml-1.5 text-coach">● live</span>}
               </button>
-            ))}
-          </CardContent>
-        </Card>
-      </div>
+            );
+          })}
+        </div>
+      )}
 
-      <Card className="min-h-[70vh]">
-        <CardHeader className="flex flex-row items-center">
-          <CardTitle>Live round {round && <span className="font-mono text-xs text-muted-foreground">{round}</span>}</CardTitle>
-          {progress && (
-            <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
-              testing {String(progress.payload.done)}/{String(progress.payload.of)}
-              <div className="h-1.5 w-32 overflow-hidden rounded-full bg-muted">
-                <div className="h-full bg-primary transition-all" style={{ width: `${(100 * Number(progress.payload.done)) / Number(progress.payload.of)}%` }} />
-              </div>
-            </div>
-          )}
-        </CardHeader>
-        <CardContent className="flex flex-col gap-2">
-          {!round && <p className="text-sm text-muted-foreground">Press “Run one round” to watch the coach diagnose, propose, and test a change.</p>}
-          {events.map((e) => (
-            <EventRow key={e._id} e={e} />
-          ))}
-          {running && <div className="animate-pulse text-sm text-muted-foreground">…</div>}
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_460px]">
+        <section className="rounded-2xl border bg-card p-5">
+          {!round && <Empty onStart={start} />}
+          {fatal && <p className="mb-3 rounded-lg bg-fail-soft px-3 py-2 text-sm text-fail">Round stopped: {String(fatal.error)}</p>}
+          <ol className="relative flex flex-col">
+            {round &&
+              phases.map((ph, i) => {
+                const state = ph.events.length ? (current === ph.key ? "live" : "done") : "pending";
+                return (
+                  <li key={ph.key} className="relative grid grid-cols-[2rem_1fr] gap-3 pb-6 last:pb-0">
+                    {i < phases.length - 1 && <span className="absolute left-[15px] top-8 h-[calc(100%-1.5rem)] w-px bg-border" />}
+                    <span
+                      className={cn(
+                        "z-10 grid size-8 place-items-center rounded-full border font-mono text-xs font-semibold",
+                        state === "done" && "border-coach bg-coach-soft text-coach",
+                        state === "live" && "pulse-dot border-coach bg-coach text-white",
+                        state === "pending" && "bg-card text-muted-foreground",
+                      )}
+                    >
+                      {i + 1}
+                    </span>
+                    <div className="flex min-w-0 flex-col gap-2">
+                      <div className="flex flex-wrap items-baseline gap-x-2 pt-1">
+                        <h2 className="text-base font-bold">{ph.title}</h2>
+                        <span className="text-xs text-muted-foreground">{ph.blurb}</span>
+                      </div>
+                      {ph.events.map((e) => (
+                        <EventRow key={e._id} e={e} />
+                      ))}
+                    </div>
+                  </li>
+                );
+              })}
+          </ol>
           <div ref={bottom} />
-        </CardContent>
-      </Card>
+        </section>
+
+        <aside className="flex flex-col gap-4 xl:sticky xl:top-6 xl:self-start">
+          <div className="rounded-2xl border bg-card p-4">
+            <p className="eyebrow">Proposed patch</p>
+            {proposal ? (
+              <div className="mt-2 flex flex-col gap-3">
+                <div className="flex items-center gap-2">
+                  <span className={cn("size-2 rounded-full", AREA_DOT[String(proposal.area)])} />
+                  <span className="text-sm font-semibold capitalize">{String(proposal.area)}</span>
+                  <span className="truncate font-mono text-[11px] text-muted-foreground">targets {Object.values((proposal.targetFilter as Record<string, unknown>) ?? {}).join(", ")}</span>
+                </div>
+                <p className="text-sm leading-relaxed">{String(proposal.reason)}</p>
+                <ConfigDiff base={base} ops={(proposal.ops as ChangeOp[]) ?? []} from={baseVersion} to={candidate} />
+                {Array.isArray(proposal.evidenceConversationIds) && (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="eyebrow">Evidence</span>
+                    {(proposal.evidenceConversationIds as string[]).map((id) => (
+                      <Link key={id} href={`/conversations/${id}`} className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[11px] text-agent hover:underline">
+                        {id.slice(0, 8)}
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="mt-2 text-sm text-muted-foreground">{running ? "The coach is still investigating." : "No proposal in this round yet."}</p>
+            )}
+          </div>
+
+          {(runs.length > 0 || testStart) && <Scoreboard runs={runs} planned={Number(testStart?.target ?? 0) + Number(testStart?.regression ?? 0)} />}
+          {decision && <Verdict d={decision} />}
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function Empty({ onStart }: { onStart: () => void }) {
+  return (
+    <div className="flex flex-col items-start gap-3 py-10">
+      <p className="text-lg font-semibold">No rounds yet.</p>
+      <p className="max-w-md text-sm text-muted-foreground">A round runs practice visitors against the live config, finds where the goal fails, proposes one change, and tests it.</p>
+      <button onClick={onStart} className="rounded-full bg-coach px-4 py-2 text-sm font-semibold text-white">
+        Run the first round
+      </button>
+    </div>
+  );
+}
+
+function Scoreboard({ runs, planned }: { runs: Record<string, unknown>[]; planned: number }) {
+  const sets = ["target", "regression"] as const;
+  return (
+    <div className="rounded-2xl border bg-card p-4">
+      <div className="flex items-baseline justify-between">
+        <p className="eyebrow">Test on practice visitors</p>
+        <span className="font-mono text-[11px] text-muted-foreground">
+          {runs.length}/{planned || "…"}
+        </span>
+      </div>
+      {sets.map((set) => {
+        const rs = runs.filter((r) => r.set === set);
+        const ok = rs.filter((r) => r.success).length;
+        return (
+          <div key={set} className="mt-3">
+            <div className="mb-1.5 flex items-baseline justify-between text-xs">
+              <span className="font-semibold">{set === "target" ? "Should now succeed" : "Must still succeed"}</span>
+              <span className="font-mono">
+                {ok}/{rs.length}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {rs.map((r) => (
+                <Link
+                  key={String(r.conversationId)}
+                  href={`/conversations/${String(r.conversationId)}`}
+                  title={String(r.personaId)}
+                  className={cn("rise rounded-md px-2 py-1 font-mono text-[10.5px]", r.success ? "bg-pass-soft text-pass" : "bg-fail-soft text-fail")}
+                >
+                  {r.success ? "✓" : "✗"} {String(r.personaId).replace(/^p\d+_/, "").replace(/_/g, " ")}
+                </Link>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function Verdict({ d }: { d: Record<string, unknown> }) {
+  if (d.decision === "no_proposal") return <div className="rounded-2xl border bg-card p-4 text-sm">The coach didn&apos;t propose a change this round.</div>;
+  const ok = d.decision === "accepted";
+  const t = (d.test ?? {}) as { target?: { after: number; n: number }; regression?: { after: number; n: number }; lockedViolations?: number; notes?: string };
+  return (
+    <div className={cn("rise rounded-2xl p-4 text-white", ok ? "bg-pass" : "bg-fail")}>
+      <p className="font-mono text-[11px] uppercase tracking-widest opacity-80">Decision</p>
+      <p className="display mt-1 text-2xl">{ok ? `Kept. v${String(d.version)} is live.` : `Rejected v${String(d.version)}.`}</p>
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs opacity-90">
+        {t.target && <span>fixed {t.target.after}/{t.target.n}</span>}
+        {t.regression && <span>kept {t.regression.after}/{t.regression.n}</span>}
+        <span>locked-rule violations {t.lockedViolations ?? 0}</span>
+      </div>
+      {!ok && t.notes && <p className="mt-2 text-xs opacity-90">{t.notes}</p>}
     </div>
   );
 }
 
 function EventRow({ e }: { e: Ev }) {
   const p = e.payload;
-  const time = new Date(e.ts).toLocaleTimeString("en-US", { minute: "2-digit", second: "2-digit" });
-  const shell = (icon: string, body: React.ReactNode, cls?: string) => (
-    <div className={cn("flex gap-2.5 rounded-md px-2.5 py-2 text-sm", cls)}>
-      <span className="w-5 shrink-0 text-center">{icon}</span>
-      <div className="min-w-0 flex-1">{body}</div>
-      <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{time}</span>
+  const time = <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{clock(e.ts)}</span>;
+
+  if (e.type === "thinking")
+    return (
+      <div className="rise flex gap-2 text-sm text-muted-foreground">
+        <div className="min-w-0 flex-1 italic">
+          <Markdown text={String(p.text)} />
+        </div>
+        {time}
+      </div>
+    );
+
+  if (e.type === "test_progress") {
+    if (p.stage === "baseline")
+      return (
+        <div className="rise flex flex-wrap items-center gap-2 text-sm">
+          <span className="rounded-md bg-agent-soft px-2 py-0.5 font-mono text-[11px] text-agent">{String(p.missing)} conversations</span>
+          <span className="text-muted-foreground">running on v{String(p.version)} through the real runtime</span>
+          <span className="ml-auto">{time}</span>
+        </div>
+      );
+    if (p.stage === "start")
+      return (
+        <div className="rise flex flex-wrap items-center gap-2 text-sm">
+          <span>
+            Testing <b>v{String(p.version)}</b> on {String(p.target)} visitors it should fix and {String(p.regression)} it must not break
+          </span>
+          <span className="ml-auto">{time}</span>
+        </div>
+      );
+    return null;
+  }
+
+  if (e.type === "tool_call") return <ToolCall p={p} time={time} />;
+
+  if (e.type === "proposal")
+    return (
+      <div className="rise flex items-center gap-2 rounded-lg border border-coach/40 bg-coach-soft px-3 py-2 text-sm">
+        <span className="font-semibold text-coach">Proposal ready</span>
+        <span className="truncate text-muted-foreground">
+          {(p.ops as ChangeOp[])?.length ?? 0} changes to {String(p.area)}. The patch is on the right.
+        </span>
+        <span className="ml-auto">{time}</span>
+      </div>
+    );
+
+  if (e.type === "decision") {
+    const ok = p.decision === "accepted";
+    return (
+      <div className={cn("rise rounded-lg px-3 py-2 text-sm font-semibold", ok ? "bg-pass-soft text-pass" : p.decision === "no_proposal" ? "bg-muted" : "bg-fail-soft text-fail")}>
+        {p.decision === "no_proposal" ? "No proposal this round." : ok ? `Accepted. v${String(p.version)} is now live.` : `Rejected v${String(p.version)}.`}
+      </div>
+    );
+  }
+
+  if (e.type === "error")
+    return (
+      <div className="rise rounded-lg bg-fail-soft px-3 py-2 font-mono text-xs text-fail">
+        {String(p.stage)}: {JSON.stringify(p.errors ?? p.error)}
+      </div>
+    );
+  return null;
+}
+
+function ToolCall({ p, time }: { p: Record<string, unknown>; time: React.ReactNode }) {
+  const tool = String(p.tool);
+  const input = (p.input ?? {}) as Record<string, unknown>;
+  const out = p.output;
+  const label =
+    tool === "stats" ? `group by ${String(input.groupBy)}` : tool === "search" ? `“${String(input.query)}”` : tool === "read" ? `conversation ${String(input.conversationId).slice(0, 8)}` : "past experiments";
+  return (
+    <div className="rise overflow-hidden rounded-xl border">
+      <div className="flex items-center gap-2 bg-muted/50 px-3 py-1.5">
+        <span className="rounded bg-coach px-1.5 py-0.5 font-mono text-[10.5px] font-semibold text-white">{tool}</span>
+        <span className="min-w-0 truncate text-sm">{label}</span>
+        <span className="ml-auto">{time}</span>
+      </div>
+      <div className="px-3 py-2">
+        {tool === "stats" && Array.isArray(out) && <StatsBars rows={out as Record<string, unknown>[]} />}
+        {tool === "search" && <SearchHits out={(out ?? {}) as Record<string, unknown>} />}
+        {tool === "read" && out ? (
+          <pre className="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-muted-foreground">{String((out as Record<string, unknown>).transcriptPreview ?? "")}</pre>
+        ) : null}
+        {tool === "list_experiments" && <p className="text-xs text-muted-foreground">{Array.isArray(out) && out.length ? `${out.length} past experiments` : "No past experiments yet."}</p>}
+      </div>
     </div>
   );
-
-  switch (e.type) {
-    case "thinking":
-      return shell("💭", <Markdown text={String(p.text)} />);
-    case "tool_call":
-      return shell(
-        "🔎",
-        <div className="flex flex-col gap-1.5">
-          <span>
-            <span className="font-mono text-xs font-medium">{String(p.tool)}</span>{" "}
-            <span className="break-all font-mono text-xs text-muted-foreground">{JSON.stringify(p.input)}</span>
-          </span>
-          {p.output !== undefined && <ToolOutput tool={String(p.tool)} out={p.output} />}
-        </div>,
-      );
-    case "proposal": {
-      const ops = (p.ops as ChangeOp[]) ?? [];
-      return shell(
-        "💡",
-        <div className="flex flex-col gap-1.5">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="font-medium">Proposal</span>
-            <Badge className={cn("border-0", AREA_STYLE[p.area as ChangeArea])}>{String(p.area)}</Badge>
-          </div>
-          <p>{String(p.reason)}</p>
-          <div className="flex flex-col gap-1">
-            {ops.map((o, i) => (
-              <details key={i} className="rounded border bg-background px-2 py-1 font-mono text-xs">
-                <summary className="cursor-pointer">
-                  {o.op} {o.path}
-                </summary>
-                {"value" in o && <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap text-[11px] text-muted-foreground">{JSON.stringify(o.value, null, 2)}</pre>}
-              </details>
-            ))}
-          </div>
-        </div>,
-        "bg-sky-50 dark:bg-sky-950/40",
-      );
-    }
-    case "test_progress":
-      if (p.stage === "baseline") return shell("⏳", <span className="text-muted-foreground">Running {String(p.missing)} baseline practice conversations on v{String(p.version)}…</span>);
-      if (p.stage === "start")
-        return shell("🧪", <span>Testing v{String(p.version)} on {String(p.target)} customers it should fix + {String(p.regression)} it must not break</span>);
-      return shell(
-        p.success ? "✅" : "❌",
-        <span className="text-xs">
-          {String(p.set)} · {String(p.personaId)}{" "}
-          {typeof p.conversationId === "string" && (
-            <Link href={`/conversations/${p.conversationId}`} className="text-primary hover:underline">
-              view
-            </Link>
-          )}
-        </span>,
-      );
-    case "decision": {
-      if (p.decision === "no_proposal") return shell("🤷", <span>No proposal this round.</span>);
-      const t = p.test as { target: { before: number; after: number; n: number }; regression: { before: number; after: number; n: number }; lockedViolations: number; notes?: string } | undefined;
-      const ok = p.decision === "accepted";
-      return shell(
-        ok ? "🎉" : "🚫",
-        <div className="flex flex-col gap-1">
-          <span className="font-semibold">
-            v{String(p.version)} {ok ? "accepted and activated" : "rejected"}
-          </span>
-          {t && (
-            <span className="text-xs">
-              target {t.target.before}/{t.target.n} → {t.target.after}/{t.target.n} · regression {t.regression.before}/{t.regression.n} → {t.regression.after}/{t.regression.n} · locked violations {t.lockedViolations}
-            </span>
-          )}
-          {t?.notes && <span className="text-xs text-muted-foreground">{t.notes}</span>}
-        </div>,
-        ok ? "bg-emerald-50 dark:bg-emerald-950/40" : "bg-rose-50 dark:bg-rose-950/40",
-      );
-    }
-    case "error":
-      return shell("⚠️", <span className="break-all text-xs text-destructive">{JSON.stringify(p)}</span>, "bg-rose-50/50 dark:bg-rose-950/20");
-    default:
-      return shell("•", <span className="font-mono text-xs">{JSON.stringify(p)}</span>);
-  }
 }
 
-// What a coach query returned: search hits with their Jev labels, stats rows, or a transcript preview.
-function ToolOutput({ tool, out }: { tool: string; out: unknown }) {
-  const o = (out ?? {}) as Record<string, unknown>;
-  if (tool === "search") {
-    const results = (o.results as Record<string, unknown>[]) ?? [];
-    return (
-      <div className="flex flex-col gap-1 rounded border bg-background px-2 py-1.5 text-xs">
-        <div className="flex flex-wrap items-center gap-1.5 text-muted-foreground">
-          <Badge variant="outline" className="font-mono text-[10px]">{String(o.method ?? "search")}</Badge>
-          {Object.entries((o.filter as Record<string, unknown>) ?? {}).map(([k, v]) => (
-            <Badge key={k} variant="secondary" className="font-mono text-[10px]">{k}={String(v)}</Badge>
-          ))}
-          <span>{results.length} hits</span>
-        </div>
-        {results.map((r) => (
-          <div key={String(r.id)} className="flex flex-wrap items-baseline gap-1.5">
-            <span>{r.success ? "✅" : "❌"}</span>
-            <Link href={`/conversations/${String(r.id)}`} className="font-mono text-primary hover:underline">{String(r.id).slice(0, 8)}</Link>
-            {r.intent ? <Badge variant="outline" className="text-[10px]">{String(r.intent)}</Badge> : null}
-            {r.failureType ? <Badge variant="outline" className="text-[10px]">{String(r.failureType)}</Badge> : null}
-            {Array.isArray(r.foundBy) && r.foundBy.length > 0 && <span className="font-mono text-[10px] text-muted-foreground">{(r.foundBy as string[]).join(" · ")}</span>}
-            <span className="w-full text-muted-foreground">{String(r.summary ?? "")}</span>
-          </div>
-        ))}
-      </div>
-    );
-  }
-  if (tool === "stats" && Array.isArray(out)) {
-    return (
-      <div className="grid grid-cols-[auto_repeat(3,auto)] gap-x-3 rounded border bg-background px-2 py-1.5 font-mono text-[11px] tabular-nums">
-        <span className="text-muted-foreground">group</span><span className="text-muted-foreground">n</span><span className="text-muted-foreground">success</span><span className="text-muted-foreground">left</span>
-        {(out as Record<string, unknown>[]).map((r) => (
-          <Row key={String(r._id)} cells={[String(r._id ?? "—"), String(r.n), String(r.success), String(r.left)]} />
-        ))}
-      </div>
-    );
-  }
+function StatsBars({ rows }: { rows: Record<string, unknown>[] }) {
+  const max = Math.max(1, ...rows.map((r) => Number(r.n)));
   return (
-    <details className="rounded border bg-background px-2 py-1 text-xs">
-      <summary className="cursor-pointer text-muted-foreground">result</summary>
-      <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap text-[11px] text-muted-foreground">{JSON.stringify(out, null, 2)}</pre>
-    </details>
+    <div className="grid grid-cols-[minmax(7rem,auto)_1fr_auto] items-center gap-x-3 gap-y-1.5">
+      {rows.map((r) => {
+        const n = Number(r.n);
+        const ok = Number(r.success);
+        return (
+          <div key={String(r._id)} className="contents">
+            <span className="truncate font-mono text-[11px]">{String(r._id ?? "unlabeled")}</span>
+            <div className="flex h-2.5 overflow-hidden rounded-full bg-muted" style={{ width: `${Math.max(12, (100 * n) / max)}%` }}>
+              <div className="bg-pass" style={{ width: `${(100 * ok) / n}%` }} />
+              <div className="bg-fail/80" style={{ width: `${(100 * (n - ok)) / n}%` }} />
+            </div>
+            <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+              {ok}/{n}
+            </span>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
-function Row({ cells }: { cells: string[] }) {
+function SearchHits({ out }: { out: Record<string, unknown> }) {
+  const results = (out.results as Record<string, unknown>[]) ?? [];
   return (
-    <>
-      {cells.map((c, i) => (
-        <span key={i}>{c}</span>
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="rounded-md bg-ink px-1.5 py-0.5 font-mono text-[10px] text-white">{String(out.method ?? "search").replace(/^hybrid /, "hybrid · ")}</span>
+        {Object.entries((out.filter as Record<string, unknown>) ?? {}).map(([k, v]) => (
+          <span key={k} className="rounded-md border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+            {k.replace(/^labels\./, "")}={String(v)}
+          </span>
+        ))}
+        <span className="text-[11px] text-muted-foreground">{results.length} hits</span>
+      </div>
+      {results.map((r) => (
+        <div key={String(r.id)} className="grid grid-cols-[auto_1fr] gap-x-2 text-xs">
+          <span className={cn("mt-1 size-2 rounded-full", r.success ? "bg-pass" : "bg-fail")} />
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Link href={`/conversations/${String(r.id)}`} className="font-mono text-[11px] text-agent hover:underline">
+                {String(r.id).slice(0, 8)}
+              </Link>
+              {r.intent ? <span className="font-mono text-[10px] text-muted-foreground">{String(r.intent)}</span> : null}
+              {r.failureType ? <span className="font-mono text-[10px] text-fail">{String(r.failureType)}</span> : null}
+              {Array.isArray(r.foundBy) && <span className="font-mono text-[10px] text-muted-foreground">{(r.foundBy as string[]).join(" · ")}</span>}
+            </div>
+            <p className="line-clamp-2 text-muted-foreground">{String(r.summary ?? "")}</p>
+          </div>
+        </div>
       ))}
-    </>
+    </div>
   );
 }

@@ -147,7 +147,7 @@ export async function runCoach(opts: { round: string; config: AgentConfig; newVe
           return { ok: false, errors: res.errors };
         }
         accepted = { proposal, newConfig: res.config };
-        await logCoachEvent(round, "proposal", proposal);
+        await logCoachEvent(round, "proposal", { ...proposal, baseVersion: config.version, candidateVersion: newVersion });
         return { ok: true, message: "Accepted for testing." };
       },
     }),

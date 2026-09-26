@@ -1,42 +1,28 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { Geist, Geist_Mono } from "next/font/google";
+import { IBM_Plex_Mono, Schibsted_Grotesk } from "next/font/google";
+import { getActiveVersion, listConfigDocs } from "@evolve/core";
+import { SideNav } from "@/components/side-nav";
 import "./globals.css";
 
-const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
-const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
+const ui = Schibsted_Grotesk({ variable: "--font-ui", subsets: ["latin"], weight: ["400", "500", "600", "700", "800"] });
+const code = IBM_Plex_Mono({ variable: "--font-code", subsets: ["latin"], weight: ["400", "500", "600"] });
 
 export const metadata: Metadata = {
   title: "Agent Evolve",
-  description: "A website chat agent that evolves its own harness toward a goal.",
+  description: "A support agent that rewrites its own harness toward a goal.",
 };
 
-const NAV = [
-  { href: "/chat", label: "Chat" },
-  { href: "/replay", label: "Replay" },
-  { href: "/versions", label: "Versions" },
-  { href: "/coach", label: "Coach" },
-];
+export const dynamic = "force-dynamic";
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  const [active, docs] = await Promise.all([getActiveVersion().catch(() => null), listConfigDocs().catch(() => [])]);
+  const kept = docs.filter((d) => d.status === "accepted" || d.status === "active").length;
+  const rejected = docs.filter((d) => d.status === "rejected").length;
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col bg-zinc-50 font-sans text-foreground dark:bg-zinc-950">
-        <header className="sticky top-0 z-10 border-b bg-background/90 backdrop-blur">
-          <div className="mx-auto flex h-12 max-w-7xl items-center gap-6 px-4">
-            <Link href="/" className="font-semibold tracking-tight">
-              Agent Evolve <span className="font-normal text-muted-foreground">· MongoDB Atlas assistant (demo)</span>
-            </Link>
-            <nav className="flex gap-1 text-sm">
-              {NAV.map((n) => (
-                <Link key={n.href} href={n.href} className="rounded-md px-2.5 py-1 text-muted-foreground hover:bg-muted hover:text-foreground">
-                  {n.label}
-                </Link>
-              ))}
-            </nav>
-          </div>
-        </header>
-        <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6">{children}</main>
+    <html lang="en" className={`${ui.variable} ${code.variable} h-full antialiased`}>
+      <body className="flex min-h-full bg-paper font-sans text-foreground">
+        <SideNav active={active} kept={kept} rejected={rejected} />
+        <main className="min-w-0 flex-1 px-5 py-6 lg:px-8">{children}</main>
       </body>
     </html>
   );

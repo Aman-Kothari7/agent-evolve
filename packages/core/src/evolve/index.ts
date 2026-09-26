@@ -48,5 +48,7 @@ async function runRoundLocked(round: string, agentTurn: AgentTurnFn) {
     return { round, baseVersion, decision: "no_proposal" as const };
   }
   const { decision, test } = await evaluateProposal({ round, baseVersion, base, candidate: newConfig, proposal, agentTurn });
+  // Finish the new version's baseline now, so the next round (including a live one) starts straight at diagnosis.
+  if (decision === "accepted") await ensureBaseline(newVersion, agentTurn, round);
   return { round, baseVersion, candidateVersion: newVersion, decision, test, proposal };
 }

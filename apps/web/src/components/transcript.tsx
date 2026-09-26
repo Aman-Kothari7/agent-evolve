@@ -3,8 +3,7 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { AgentConfig, ChangeArea, Turn } from "@evolve/core";
-import { Badge } from "@/components/ui/badge";
-import { AREA_STYLE } from "@/lib/ui";
+import { AREA_DOT } from "@/components/config-diff";
 import { cn } from "@/lib/utils";
 
 export type ChangeInfo = Record<number, { area?: ChangeArea; reason?: string }>;
@@ -27,14 +26,14 @@ export function Markdown({ text, onAction }: { text: string; onAction?: (text: s
                   type="button"
                   disabled={!onAction}
                   onClick={() => onAction?.(t)}
-                  className="my-0.5 mr-1.5 inline-flex rounded-md border border-primary/30 bg-background px-2.5 py-1 text-xs font-medium text-primary hover:bg-primary hover:text-primary-foreground disabled:opacity-70 disabled:hover:bg-background disabled:hover:text-primary"
+                  className="my-1 mr-1.5 inline-flex rounded-full border border-agent/40 bg-card px-3 py-1.5 text-xs font-semibold text-agent outline-none transition hover:bg-agent hover:text-white focus-visible:ring-2 focus-visible:ring-agent/40 disabled:opacity-70 disabled:hover:bg-card disabled:hover:text-agent"
                 >
                   {children}
                 </button>
               );
             }
             return (
-              <a href={href} target="_blank" rel="noreferrer" className="text-primary underline underline-offset-2">
+              <a href={href} target="_blank" rel="noreferrer" className="font-medium text-agent underline decoration-agent/40 underline-offset-2">
                 {children}
               </a>
             );
@@ -89,7 +88,7 @@ export function Transcript({
     <div className="flex flex-col gap-3">
       {turns.map((t, i) =>
         t.role === "customer" ? (
-          <div key={i} className="ml-auto max-w-[80%] rounded-2xl rounded-br-sm bg-primary px-3.5 py-2 text-sm text-primary-foreground">
+          <div key={i} className="rise ml-auto max-w-[80%] rounded-2xl rounded-br-md bg-ink px-4 py-2.5 text-sm leading-relaxed text-white">
             {t.text}
           </div>
         ) : (
@@ -98,8 +97,8 @@ export function Transcript({
       )}
       {pending && (
         <>
-          <div className="ml-auto max-w-[80%] rounded-2xl rounded-br-sm bg-primary/70 px-3.5 py-2 text-sm text-primary-foreground">{pending}</div>
-          <div className="w-fit animate-pulse rounded-2xl rounded-bl-sm border bg-background px-3.5 py-2 text-sm text-muted-foreground">Thinking…</div>
+          <div className="ml-auto max-w-[80%] rounded-2xl rounded-br-md bg-ink/70 px-4 py-2.5 text-sm text-white">{pending}</div>
+          <div className="flex w-fit items-center gap-2 rounded-2xl rounded-bl-md border bg-card px-4 py-2.5 text-sm text-muted-foreground"><span className="size-1.5 animate-pulse rounded-full bg-agent" />Updating state, checking rules, drafting a reply…</div>
         </>
       )}
     </div>
@@ -111,11 +110,12 @@ function AgentBubble({ turn, config, changes, onAction, compact }: { turn: Turn;
   const blocked = (turn.ruleEvents ?? []).filter((e) => e.action !== "passed");
   const tools = (turn.toolCalls ?? []).filter((c) => c.tool !== "render_widget");
   return (
-    <div className="flex max-w-[88%] flex-col gap-1.5">
-      <div className="rounded-2xl rounded-bl-sm border bg-background px-3.5 py-2 shadow-xs">
+    <div className="rise flex max-w-[88%] flex-col gap-1.5">
+      <div className="rounded-2xl rounded-bl-md border border-l-[3px] border-l-agent bg-card px-4 py-2.5 shadow-[0_1px_0_rgba(18,21,28,0.04)]">
         {turn.text && <Markdown text={turn.text} />}
         {(turn.widgets ?? []).map((w, i) => (
-          <div key={i} className="mt-2 rounded-lg border border-pink-200 bg-pink-50/60 p-2.5 dark:border-pink-900 dark:bg-pink-950/30">
+          <div key={i} className="mt-2.5 rounded-xl border bg-paper p-3">
+            <p className="eyebrow mb-1 !text-[10px]">widget · {w.name}{w.introducedIn > 1 ? ` · added in v${w.introducedIn}` : ""}</p>
             <Markdown text={w.markdown} onAction={onAction} />
           </div>
         ))}
@@ -123,12 +123,12 @@ function AgentBubble({ turn, config, changes, onAction, compact }: { turn: Turn;
       {!compact && (tools.length > 0 || blocked.length > 0) && (
         <div className="flex flex-wrap gap-1 px-1">
           {tools.map((c, i) => (
-            <span key={i} className={cn("rounded px-1.5 py-0.5 font-mono text-[11px]", c.blockedBy ? "bg-rose-100 text-rose-700 line-through dark:bg-rose-950 dark:text-rose-300" : "bg-muted text-muted-foreground")}>
-              {c.tool}()
+            <span key={i} className={cn("rounded-md px-1.5 py-0.5 font-mono text-[10.5px]", c.blockedBy ? "bg-fail-soft text-fail line-through" : (c.output as { error?: string } | undefined)?.error ? "bg-fail-soft text-fail" : "bg-agent-soft text-agent")}>
+              {c.tool}(){(c.output as { error?: string } | undefined)?.error ? " ✗" : ""}
             </span>
           ))}
           {blocked.map((e, i) => (
-            <span key={`r${i}`} title={e.detail} className="rounded bg-rose-100 px-1.5 py-0.5 text-[11px] text-rose-700 dark:bg-rose-950 dark:text-rose-300">
+            <span key={`r${i}`} title={e.detail} className="rounded-md bg-fail-soft px-1.5 py-0.5 font-mono text-[10.5px] text-fail">
               {e.action === "blocked" ? "⛔" : "✏️"} {e.ruleId} {e.action}
             </span>
           ))}
@@ -137,9 +137,10 @@ function AgentBubble({ turn, config, changes, onAction, compact }: { turn: Turn;
       {tags.length > 0 && (
         <div className="flex flex-wrap gap-1 px-1">
           {tags.map((t) => (
-            <Badge key={t.label} title={changes[t.version]?.reason} className={cn("h-auto border-0 px-1.5 py-0 text-[11px] font-normal", AREA_STYLE[t.area])}>
+            <span key={t.label} title={changes[t.version]?.reason} className="inline-flex items-center gap-1 rounded-md border bg-card px-1.5 py-0.5 font-mono text-[10.5px] text-muted-foreground">
+              <span className={cn("size-1.5 rounded-full", AREA_DOT[t.area])} />
               v{t.version} · {t.label}
-            </Badge>
+            </span>
           ))}
         </div>
       )}
