@@ -3,7 +3,7 @@
 import { generateText, Output, stepCountIs, tool, type ModelMessage, type ToolSet } from "ai";
 import { z } from "zod";
 import type { AgentConfig, Rule } from "../config/schema";
-import { chatModel, MODELS } from "../models";
+import { agentModelFor, chatModel, MODELS } from "../models";
 import { appendTurn, createConversation, getActiveVersion, getConfig, getConversation, getKnowledgeDoc } from "../store";
 import type { RenderedWidget, RuleEvent, RunTurnInput, RunTurnResult, StateSnapshot, ToolCallLog, Turn } from "../types";
 import { ask, type Question } from "./jev";
@@ -24,6 +24,9 @@ const PRICES: Record<string, [number, number]> = {
   "openai/gpt-6-luna": [0.1, 0.5],
   "deepseek/deepseek-v4-flash": [0.1, 0.4],
   "anthropic/claude-sonnet-5": [2, 10],
+  "openai/gpt-5-mini": [0.25, 2],
+  "google/gemini-2.5-flash": [0.3, 2.5],
+  "qwen/qwen3.7-flash": [0.03, 0.13],
 };
 
 export async function runTurn(input: RunTurnInput): Promise<RunTurnResult> {
@@ -136,7 +139,7 @@ export async function runTurn(input: RunTurnInput): Promise<RunTurnResult> {
   }
 
   // 5. Generate.
-  const model = pickModel(config, state);
+  const model = pickModel(config, state, agentModelFor(input.personaId, input.seed));
   const system = buildSystem(config, state, contextDocs, [...priorCalls]);
   const messages = toMessages(history, input.message);
   const gen = await generateText({
@@ -320,10 +323,10 @@ async function runChecks(checks: Extract<Rule, { type: "check" }>[], lastVisitor
   });
 }
 
-function pickModel(config: AgentConfig, state: StateSnapshot): string {
-  if (!config.routing) return MODELS.agent;
+function pickModel(config: AgentConfig, state: StateSnapshot, fallback: string): string {
+  if (!config.routing) return fallback;
   const o = config.routing.overrides.find((x) => String(state[x.stateField] ?? "") === x.equals);
-  return o?.model ?? config.routing.default ?? MODELS.agent;
+  return o?.model ?? config.routing.default ?? fallback;
 }
 
 function buildSystem(config: AgentConfig, state: StateSnapshot, docs: { id: string; title: string; text: string }[], priorCalls: ToolCallLog[]) {
