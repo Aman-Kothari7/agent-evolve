@@ -2,24 +2,19 @@
 import { z } from "zod";
 import type { TemplateTool } from "../config/schema";
 import { executeTemplateTool } from "../config/template";
-import { TRIAL_URL } from "../data/business";
-import { getDb, getOpenSlots, getPricing, insertBooking } from "../store";
+import { GET_STARTED_URL, SIGNUP_URL } from "../data/business";
+import { findOpenSlot, getOpenSlots, insertBooking, markSlotBooked, searchKnowledge } from "../store";
 
 export type ToolCtx = { conversationId: string };
 
 type Builtin = { input: z.ZodObject; run: (input: Record<string, unknown>, ctx: ToolCtx) => Promise<unknown> };
 
 export const BUILTINS: Record<string, Builtin> = {
-  get_price: {
-    input: z.object({}),
-    run: async () => {
-      const rows = await getPricing();
-      return { plans: rows.filter((r) => r.plan), billing_rules: rows.find((r) => !r.plan) ?? null };
-    },
-  },
-  ask_email: {
-    input: z.object({}),
-    run: async () => ({ ok: true, note: "Ask the visitor for their work email in your reply." }),
+  search_docs: {
+    input: z.object({ query: z.string().describe("What to look up in the MongoDB docs") }),
+    run: async (input) => ({
+      results: (await searchKnowledge(String(input.query), 2)).map((d) => ({ title: d.title, url: d.url, text: d.text })),
+    }),
   },
   get_slots: {
     input: z.object({}),
@@ -27,27 +22,25 @@ export const BUILTINS: Record<string, Builtin> = {
   },
   book_meeting: {
     input: z.object({
-      slot: z.string().describe("The slotId or the exact time label the visitor picked"),
+      slot: z.string().describe("The slotId or the exact time label of an open slot"),
+      topic: z.string().optional(),
       name: z.string().optional(),
       email: z.string().optional(),
     }),
     run: async (input, ctx) => {
-      const want = String(input.slot).trim().toLowerCase();
-      const slot = await (await getDb())
-        .collection("slots")
-        .findOne({ $or: [{ slotId: input.slot }, { label: { $regex: `^${escapeRegex(want)}`, $options: "i" } }] });
-      const label = (slot?.label as string | undefined) ?? String(input.slot);
-      await insertBooking({ conversationId: ctx.conversationId, slot: label, name: input.name as string | undefined, email: input.email as string | undefined });
-      return { booked: true, slot: label };
+      // Only real, open slots can be booked; free-text times like "Tuesday afternoon" are rejected.
+      const slot = await findOpenSlot(String(input.slot));
+      if (!slot) return { booked: false, error: "That isn't an open time on the engineers' calendar. You need an exact open slot to book." };
+      await markSlotBooked(slot.slotId as string);
+      await insertBooking({ conversationId: ctx.conversationId, slot: slot.label as string, name: input.name as string | undefined, email: input.email as string | undefined });
+      return { booked: true, slot: slot.label };
     },
   },
-  send_trial_link: {
+  send_signup_link: {
     input: z.object({}),
-    run: async () => ({ url: TRIAL_URL, note: "Self-serve 14-day free trial, no credit card." }),
+    run: async () => ({ signupUrl: SIGNUP_URL, gettingStarted: GET_STARTED_URL, note: "Free cluster, no credit card required." }),
   },
 };
-
-const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 // ---------- Template tools (execution lives in config/template.ts, shared with the evaluator) ----------
 

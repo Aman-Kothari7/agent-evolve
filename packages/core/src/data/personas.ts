@@ -1,75 +1,96 @@
-import { isQualified, Persona } from "../types";
-
-type Hidden = Persona["hidden"];
-type Behavior = Persona["behavior"];
+import { needsMeeting, Persona, type SuccessCriteria } from "../types";
 
 function make(p: Omit<Persona, "qualified">): Persona {
-  return Persona.parse({ ...p, qualified: isQualified(p.hidden) });
+  return Persona.parse({ ...p, qualified: needsMeeting(p.success as SuccessCriteria) });
 }
 
-// The four demo cases (docs/ARCHITECTURE.md section 1). Fixed openings so replays are comparable.
+const ACCESS_LIST = ["access list|network access|allowlist|whitelist|0\\.0\\.0\\.0"];
+
+// The demo visitors. Fixed openings so v1 and later versions are compared on the same input.
 export const DEMO_PERSONAS: Persona[] = [
   make({
-    _id: "demo_c1_email_gate", split: "demo", caseId: "C1", segment: "qualified_sso",
-    opening: "Hi, how much would Acme cost for a team of about 40 people?",
-    hidden: { name: "Maya Chen", role: "Head of Operations", teamSize: 40, need: "sso", billing: "monthly", timeline: "deciding this month" },
-    behavior: { leavesIfContactBeforePrice: true, maxSchedulingExchanges: 3, checksMath: false, readiness: "evaluating" },
+    _id: "demo_d1_connection", split: "demo", caseId: "D1", segment: "connection_issue",
+    opening: "My app can't connect to Atlas anymore. I keep getting ECONNRESET and 'server selection timed out'. It worked yesterday.",
+    hidden: { name: "Sam Rivera", role: "Backend developer", company: "Loopcart", teamSize: 12, tier: "dedicated",
+      situation: "You switched to a coworking space's Wi-Fi today. Your credentials and connection string are correct.",
+      rootCause: "Your new network's IP is not on the Atlas IP access list (Security → Network Access)." },
+    behavior: { maxUnhelpfulReplies: 1, maxSchedulingExchanges: 2, readiness: "evaluating" },
+    success: { kind: "mentions", all: ACCESS_LIST, forbid: [] },
   }),
   make({
-    _id: "demo_c2_wrong_math", split: "demo", caseId: "C2", segment: "security_review",
-    opening: "We have 120 people and would pay annually. What would the Business plan come to for the year?",
-    hidden: { name: "Daniel Okafor", role: "IT Lead", teamSize: 120, need: "security_review", billing: "annual", timeline: "budget approval next week" },
-    behavior: { leavesIfContactBeforePrice: false, maxSchedulingExchanges: 3, checksMath: true, readiness: "evaluating" },
+    _id: "demo_d2_migration", split: "demo", caseId: "D2", segment: "migration",
+    opening: "We're moving a 4 TB fintech database from Postgres to MongoDB and need multi-region plus compliance. Can we talk to someone?",
+    hidden: { name: "Priya Raman", role: "VP of Engineering", company: "Ledgerline", teamSize: 180, tier: "none",
+      situation: "You want a call with a MongoDB engineer this week to plan the migration." },
+    behavior: { maxUnhelpfulReplies: 2, maxSchedulingExchanges: 1, readiness: "ready" },
+    success: { kind: "meeting" },
   }),
   make({
-    _id: "demo_c3_scheduling", split: "demo", caseId: "C3", segment: "qualified_integrations",
-    opening: "We use Snowflake and HubSpot and want to see a demo this week. Can we set something up?",
-    hidden: { name: "Priya Raman", role: "VP of Data", teamSize: 60, need: "integrations", billing: "annual", timeline: "this week" },
-    behavior: { leavesIfContactBeforePrice: false, maxSchedulingExchanges: 1, checksMath: false, readiness: "ready" },
-  }),
-  make({
-    _id: "demo_c4_unqualified", split: "demo", caseId: "C4", segment: "solo",
-    opening: "I'm a solo founder working on a small startup. Can I talk to someone about whether this fits me?",
-    hidden: { name: "Leo Martins", role: "Founder", teamSize: 3, need: "dashboards", billing: "monthly", timeline: "just exploring" },
-    behavior: { leavesIfContactBeforePrice: false, maxSchedulingExchanges: 3, checksMath: false, readiness: "browsing" },
+    _id: "demo_d3_index_limit", split: "demo", caseId: "D3", segment: "limits_question",
+    opening: "How many vector search indexes can I create on the free tier?",
+    hidden: { name: "Leo Martins", role: "Indie developer", company: "Side project", teamSize: 1, tier: "free",
+      situation: "You're planning a small RAG app on a Free cluster and need 4 vector indexes. You don't know the limit." },
+    behavior: { maxUnhelpfulReplies: 2, maxSchedulingExchanges: 2, readiness: "browsing" },
+    success: { kind: "mentions", all: ["\\b3\\b"], forbid: ["unlimited", "no (hard |fixed )?limit", "as many as"] },
   }),
 ];
 
-// ---------- Generated practice personas: 8 segments x 4 behaviors ----------
+// ---------- Practice visitors: 8 segments x 4 behaviors ----------
 
 type Segment = {
   id: string;
-  sizes: number[];
-  need: Hidden["need"];
   roles: string[];
+  tier: Persona["hidden"]["tier"];
+  sizes: number[];
   openings: string[];
-  competitor?: string;
+  situation: string;
+  rootCause?: string;
+  success: SuccessCriteria;
 };
 
 const SEGMENTS: Segment[] = [
-  { id: "qualified_sso", sizes: [25, 45, 70, 35], need: "sso", roles: ["Head of Operations", "IT Manager"],
-    openings: ["What does Acme cost for around {n} people?", "Do you support SSO? We're a team of {n}."] },
-  { id: "qualified_integrations", sizes: [30, 55, 90, 40], need: "integrations", roles: ["Data Lead", "RevOps Manager"],
-    openings: ["Does Acme connect to Salesforce? We'd have about {n} users.", "Pricing for {n} seats with Snowflake integration?"] },
-  { id: "enterprise", sizes: [220, 350, 600, 260], need: "enterprise", roles: ["Director of BI", "VP Engineering"],
-    openings: ["We're looking at a rollout for about {n} people. How does pricing work at that size?", "Do you do custom contracts? We'd be {n}+ seats."] },
-  { id: "security_review", sizes: [40, 150, 65, 110], need: "security_review", roles: ["Security Lead", "CTO"],
-    openings: ["Before anything else: do you have a SOC 2 report and audit logs? We're {n} people.", "What's the price for {n} users on the plan with audit logs?"] },
-  { id: "small_team", sizes: [4, 8, 12, 6], need: "dashboards", roles: ["Marketing Lead", "Ops Associate"],
-    openings: ["How much for a small team of {n}?", "Is there a free trial? We're only {n} people."] },
-  { id: "solo", sizes: [1, 2, 3, 1], need: "price_only", roles: ["Freelancer", "Student"],
-    openings: ["How much is it for just me?", "Is there a cheap plan for {n} users?"] },
-  { id: "price_shopper", sizes: [15, 30, 50, 20], need: "price_only", roles: ["Finance Analyst", "Office Manager"],
-    openings: ["Just need a quick price for {n} seats, no calls please.", "What's your cheapest option for {n} people?"] },
-  { id: "competitor_switcher", sizes: [30, 60, 45, 80], need: "sso", roles: ["Head of Analytics", "IT Director"], competitor: "DashCo",
-    openings: ["We're on DashCo and it's getting expensive for {n} seats. How do you compare?", "Thinking of switching from DashCo. We need SSO for {n} people."] },
+  { id: "connection_issue", roles: ["Backend developer", "DevOps engineer"], tier: "dedicated", sizes: [8, 25, 40, 15],
+    openings: ["Getting 'MongoServerSelectionError: connection timed out' from my laptop. Worked fine at the office.", "Our new CI runner can't reach the cluster, ECONNRESET on every build."],
+    situation: "Your credentials are fine; you're connecting from a new network or machine.",
+    rootCause: "The new machine's IP isn't on the Atlas IP access list.",
+    success: { kind: "mentions", all: ACCESS_LIST, forbid: [] } },
+  { id: "index_limit_free", roles: ["Student developer", "Indie hacker"], tier: "free", sizes: [1, 2, 1, 3],
+    openings: ["I tried to add a 4th vector index on my free cluster and it failed. Is there a limit?", "What's the max number of search indexes on an M0 free cluster?"],
+    situation: "You're on a Free cluster and want several search/vector indexes. You don't know the limit.",
+    success: { kind: "mentions", all: ["\\b3\\b"], forbid: ["unlimited", "no (hard |fixed )?limit", "as many as"] } },
+  { id: "index_limit_flex", roles: ["Full-stack developer", "Startup CTO"], tier: "flex", sizes: [5, 10, 4, 8],
+    openings: ["How many vector search indexes can a Flex cluster have?", "We're on Flex. Can we have 12 search indexes?"],
+    situation: "You're on a Flex cluster planning several indexes. You don't know the limit.",
+    success: { kind: "mentions", all: ["\\b10\\b"], forbid: ["unlimited", "no (hard |fixed )?limit", "as many as"] } },
+  { id: "rerank_version", roles: ["ML engineer", "Search engineer"], tier: "dedicated", sizes: [20, 60, 35, 90],
+    openings: ["$rerank gives me 'Unrecognized pipeline stage name'. What am I doing wrong?", "Is native reranking available on my cluster? The $rerank stage errors out."],
+    situation: "Your dedicated cluster runs MongoDB 8.0.",
+    rootCause: "$rerank requires MongoDB 8.3 or later; the cluster must be upgraded.",
+    success: { kind: "mentions", all: ["8\\.3"], forbid: [] } },
+  { id: "autoembed_setup", roles: ["AI engineer", "Backend developer"], tier: "dedicated", sizes: [12, 30, 18, 45],
+    openings: ["Can Atlas create embeddings for me so I don't need my own embedding pipeline?", "What's the easiest way to get vector embeddings into Atlas without calling an embedding API myself?"],
+    situation: "You want Atlas to handle embeddings for your product catalog.",
+    rootCause: "Use Automated Embedding: a Vector Search index with an autoEmbed field.",
+    success: { kind: "mentions", all: ["auto ?embed|automated embedding"], forbid: [] } },
+  { id: "migration", roles: ["Head of Platform", "Data architect"], tier: "none", sizes: [120, 300, 80, 500],
+    openings: ["We're planning to move 2 TB from MySQL to MongoDB across two regions. Can we get time with an expert?", "Our bank wants to migrate a regulated Oracle workload to Atlas. Who can we talk to?"],
+    situation: "You need a call with a MongoDB engineer to plan a large, regulated, or multi-region migration.",
+    success: { kind: "meeting" } },
+  { id: "production_incident", roles: ["SRE lead", "CTO"], tier: "dedicated", sizes: [60, 150, 40, 220],
+    openings: ["Our production M30 cluster CPU is pegged and checkout requests are timing out. We need help now.", "Write latency on our production cluster jumped 10x after yesterday's deploy. Can an engineer look?"],
+    situation: "A paying production customer with an incident the docs won't solve; you want a call with an engineer as soon as possible.",
+    success: { kind: "meeting" } },
+  { id: "learner", roles: ["Student", "Bootcamp student"], tier: "none", sizes: [1, 1, 2, 1],
+    openings: ["I'm doing a class project with MongoDB. Can I get a call with someone to help me set up?", "Can someone from MongoDB walk me through creating my first database for a hackathon?"],
+    situation: "You're a learner. A free cluster and a getting-started guide are exactly what you need.",
+    success: { kind: "signup" } },
 ];
 
-const BEHAVIORS: { id: string; b: Behavior }[] = [
-  { id: "contact_averse", b: { leavesIfContactBeforePrice: true, maxSchedulingExchanges: 3, checksMath: false, readiness: "evaluating" } },
-  { id: "impatient_scheduler", b: { leavesIfContactBeforePrice: false, maxSchedulingExchanges: 1, checksMath: false, readiness: "ready" } },
-  { id: "math_checker", b: { leavesIfContactBeforePrice: false, maxSchedulingExchanges: 3, checksMath: true, readiness: "evaluating" } },
-  { id: "ready_buyer", b: { leavesIfContactBeforePrice: false, maxSchedulingExchanges: 2, checksMath: false, readiness: "ready" } },
+const BEHAVIORS: { id: string; b: Persona["behavior"] }[] = [
+  { id: "gives_up_fast", b: { maxUnhelpfulReplies: 1, maxSchedulingExchanges: 2, readiness: "evaluating" } },
+  { id: "impatient_scheduler", b: { maxUnhelpfulReplies: 2, maxSchedulingExchanges: 1, readiness: "ready" } },
+  { id: "patient", b: { maxUnhelpfulReplies: 3, maxSchedulingExchanges: 3, readiness: "evaluating" } },
+  { id: "ready", b: { maxUnhelpfulReplies: 2, maxSchedulingExchanges: 2, readiness: "ready" } },
 ];
 
 const NAMES = [
@@ -78,32 +99,30 @@ const NAMES = [
   "Elena Popova", "Jack Turner", "Aisha Bello", "Ryan O'Neill", "Yuki Tanaka", "Carmen Diaz", "Felix Wagner", "Nora Lindqvist",
   "Kwame Mensah", "Isla Murray", "Arjun Rao", "Leah Cohen", "Tomás Herrera", "Ingrid Berg", "Victor Chen", "Amara Obi",
 ];
-
-const TIMELINES = ["this quarter", "next month", "just exploring", "within two weeks"];
+const COMPANIES = ["Orbitly", "Fernbank Health", "Tradewind", "Pixelforge", "Northwave Bank", "Brightpath", "Cobalt Labs", "Uni project"];
 
 export function generatePracticePersonas(): Persona[] {
   const out: Persona[] = [];
   let i = 0;
   SEGMENTS.forEach((seg, si) => {
     BEHAVIORS.forEach((beh, bi) => {
-      const n = seg.sizes[bi % seg.sizes.length];
-      const opening = seg.openings[(si + bi) % seg.openings.length].replace("{n}", String(n));
       out.push(
         make({
           _id: `p${String(i + 1).padStart(2, "0")}_${seg.id}_${beh.id}`,
           split: i % 4 === 3 ? "heldout" : "train",
           segment: seg.id,
-          opening,
+          opening: seg.openings[(si + bi) % seg.openings.length],
           hidden: {
             name: NAMES[i % NAMES.length],
             role: seg.roles[bi % seg.roles.length],
-            teamSize: n,
-            need: seg.need,
-            billing: bi % 2 === 0 ? "monthly" : "annual",
-            timeline: TIMELINES[(si + bi) % TIMELINES.length],
-            ...(seg.competitor ? { competitor: seg.competitor } : {}),
+            company: seg.id === "learner" ? "Student" : COMPANIES[(si + bi) % COMPANIES.length],
+            teamSize: seg.sizes[bi % seg.sizes.length],
+            tier: seg.tier,
+            situation: seg.situation,
+            ...(seg.rootCause ? { rootCause: seg.rootCause } : {}),
           },
           behavior: beh.b,
+          success: seg.success,
         }),
       );
       i++;

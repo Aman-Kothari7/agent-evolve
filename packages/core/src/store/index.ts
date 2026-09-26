@@ -195,12 +195,8 @@ export async function listPersonas(split?: Persona["split"]) {
 
 // ---------- Business data used by tools ----------
 
-export const TOOL_COLLECTIONS = ["pricing", "slots", "knowledge"] as const;
+export const TOOL_COLLECTIONS = ["limits", "slots", "knowledge"] as const;
 export type ToolCollection = (typeof TOOL_COLLECTIONS)[number];
-
-export async function getPricing() {
-  return (await getDb()).collection("pricing").find({}, { projection: { _id: 0 } }).toArray();
-}
 
 export async function getOpenSlots(limit = 3) {
   return (await getDb())
@@ -211,10 +207,45 @@ export async function getOpenSlots(limit = 3) {
     .toArray();
 }
 
-export async function getKnowledgeDoc(id: string): Promise<{ id: string; title: string; text: string } | null> {
-  return (await getDb()).collection<{ _id: string; title: string; text: string }>("knowledge")
+export async function getKnowledgeDoc(id: string): Promise<{ id: string; title: string; text: string; url?: string } | null> {
+  return (await getDb()).collection<{ _id: string; title: string; text: string; url?: string }>("knowledge")
     .findOne({ _id: id })
-    .then((d) => (d ? { id: d._id, title: d.title, text: d.text } : null));
+    .then((d) => (d ? { id: d._id, title: d.title, text: d.text, url: d.url } : null));
+}
+
+export const KNOWLEDGE_VECTOR_INDEX = "knowledge_text_vec";
+
+// Semantic docs search (Automated Embedding index on knowledge.text), with a keyword fallback.
+export async function searchKnowledge(query: string, k = 2) {
+  const col = (await getDb()).collection<{ _id: string; title: string; text: string; url: string }>("knowledge");
+  try {
+    const rows = await col
+      .aggregate([
+        { $vectorSearch: { index: KNOWLEDGE_VECTOR_INDEX, path: "text", query, numCandidates: 50, limit: k } },
+        { $project: { _id: 1, title: 1, url: 1, text: 1, score: { $meta: "vectorSearchScore" } } },
+      ])
+      .toArray();
+    if (rows.length) return rows;
+  } catch {
+    // index still building or unavailable: fall through to keywords
+  }
+  const words = query.toLowerCase().split(/\W+/).filter((w) => w.length > 3);
+  const all = await col.find({}).toArray();
+  return all
+    .map((d) => ({ ...d, score: words.filter((w) => (d.title + " " + d.text).toLowerCase().includes(w)).length }))
+    .filter((d) => d.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, k);
+}
+
+// Finds an open slot by id or by the start of its label (e.g. "Tue, Sep 29, 1:00 PM").
+export async function findOpenSlot(slot: string) {
+  const escaped = slot.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return (await getDb()).collection("slots").findOne({ booked: { $ne: true }, $or: [{ slotId: slot.trim() }, { label: { $regex: `^${escaped}`, $options: "i" } }] });
+}
+
+export async function markSlotBooked(slotId: string) {
+  await (await getDb()).collection("slots").updateOne({ slotId }, { $set: { booked: true } });
 }
 
 export async function listKnowledge() {
@@ -264,4 +295,25 @@ export async function insertExperiment(e: Document) {
 
 export async function listExperiments(limit = 30) {
   return (await getDb()).collection("experiments").find({}).sort({ createdAt: -1 }).limit(limit).toArray();
+}
+
+// ---------- One coach round at a time (shared by `pnpm evolve` and the web app) ----------
+
+export async function acquireCoachLock(round: string, ttlMs = 20 * 60_000): Promise<boolean> {
+  const locks = (await getDb()).collection<{ _id: string; round: string; until: Date }>("locks");
+  const now = new Date();
+  try {
+    await locks.updateOne(
+      { _id: "coach", $or: [{ until: { $lt: now } }, { round }] },
+      { $set: { round, until: new Date(now.getTime() + ttlMs) } },
+      { upsert: true },
+    );
+    return true;
+  } catch {
+    return false; // duplicate key: another round holds an unexpired lock
+  }
+}
+
+export async function releaseCoachLock(round: string) {
+  await (await getDb()).collection<{ _id: string; round: string; until: Date }>("locks").updateOne({ _id: "coach", round }, { $set: { until: new Date(0) } });
 }

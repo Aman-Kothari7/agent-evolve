@@ -1,36 +1,38 @@
 import type { AgentConfig } from "../config/schema";
 
-// Deliberately weak but realistic starting point: a generic "capture the lead" bot.
-// It asks for email early, has no calendar access, does price math in its head,
-// and books anyone who asks. The coach has to discover and fix each of these.
+// Deliberately weak but realistic starting point: a friendly generalist with no docs search,
+// no calendar, no limits lookup, and a meeting tool anyone can trigger. The coach has to
+// discover and fix each gap from conversation evidence.
 export const V1_CONFIG: AgentConfig = {
   version: 1,
-  goal: { description: "Book demos with qualified buyers (20+ seats with an SSO, security, integrations or enterprise need, or 200+ seats). Send everyone else to the self-serve free trial." },
+  goal: {
+    description:
+      "Resolve MongoDB Atlas support questions correctly. Book a call with a MongoDB engineer only when a customer has a production workload that needs one (a large or regulated migration, or a production incident the docs can't solve). Send learners and prototypes to the free tier.",
+  },
   instructions: {
-    persona: "You are the website assistant for Acme Analytics, a B2B analytics dashboard product. Be friendly and helpful.",
+    persona: "You are the MongoDB Atlas website assistant. Be friendly and helpful.",
     sections: [
       { id: "general", title: "How to help", introducedIn: 1,
-        text: "Answer questions about Acme Analytics. Try to get the visitor's work email so our sales team can follow up, and offer to book a demo with sales." },
+        text: "Answer questions about MongoDB Atlas. If a visitor wants to talk to someone, offer to book a meeting with our team." },
     ],
   },
   state: {
     need: { question: "What does the visitor mainly need?", type: "choice", extractor: "jev", introducedIn: 1,
-      options: ["sso", "security_review", "integrations", "enterprise", "dashboards", "price_only", "other"] },
+      options: ["connection_issue", "limits_question", "feature_setup", "migration", "production_incident", "learning", "other"] },
   },
   tools: {
-    get_price: { kind: "builtin", description: "Returns the price list.", enabled: true, requires: [], introducedIn: 1 },
-    ask_email: { kind: "builtin", description: "Ask the visitor for their email address.", enabled: true, requires: [], introducedIn: 1 },
+    search_docs: { kind: "builtin", description: "Searches the documentation.", enabled: false, requires: [], introducedIn: 1 },
+    get_slots: { kind: "builtin", description: "Returns open meeting times.", enabled: false, requires: [], introducedIn: 1 },
     book_meeting: { kind: "builtin", description: "Books a meeting.", enabled: true, requires: [], introducedIn: 1 },
-    send_trial_link: { kind: "builtin", description: "Sends a link to the free trial.", enabled: true, requires: [], introducedIn: 1 },
-    get_slots: { kind: "builtin", description: "Returns open meeting slots.", enabled: false, requires: [], introducedIn: 1 },
+    send_signup_link: { kind: "builtin", description: "Sends a signup link.", enabled: true, requires: [], introducedIn: 1 },
   },
   rules: [
-    { type: "check", id: "no_invented_discounts", locked: true, onViolation: "block", introducedIn: 1,
-      question: "Does the reply offer a discount, promotion, or price that is not in the official pricing (only a 10% volume discount at 100+ seats on Team/Business and 2 months free on annual billing exist)?" },
-    { type: "check", id: "no_invented_features", locked: true, onViolation: "block", introducedIn: 1,
-      question: "Does the reply claim Acme Analytics has a feature it does not have (a mobile app, on-premise hosting, HIPAA compliance, or SSO below the Business plan)?" },
+    { type: "check", id: "no_credits_or_discounts", locked: true, onViolation: "block", introducedIn: 1,
+      question: "Does the reply promise free credits, discounts, or special pricing?" },
+    { type: "check", id: "no_guarantees", locked: true, onViolation: "block", introducedIn: 1,
+      question: "Does the reply guarantee uptime, a fix for an outage, or a specific support response time?" },
   ],
   context: [],
   widgets: {},
-  limits: { maxTurns: 10 },
+  limits: { maxTurns: 8 },
 };

@@ -17,7 +17,7 @@ export { ask } from "./jev";
 const UNKNOWN = "unknown";
 const CHECK_THRESHOLD = 0.5;
 const STICKY_CONFIDENCE = 0.8;
-const FALLBACK_REPLY = "Sorry, I can't help with that one. Is there anything else about our plans I can answer?";
+const FALLBACK_REPLY = "Sorry, I can't help with that one. Is there anything else about MongoDB Atlas I can help with?";
 
 // $ per million tokens (input, output), for cost tracking only.
 const PRICES: Record<string, [number, number]> = {

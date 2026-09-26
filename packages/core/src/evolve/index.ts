@@ -2,7 +2,7 @@ import { runCoach } from "../coach";
 import { evaluateProposal } from "../evaluator";
 import { labelPending } from "../labeler";
 import { loadRunTurn, pool, runConversation, type AgentTurnFn } from "../simulator/run";
-import { findConversations, getActiveVersion, getConfig, listPersonas, logCoachEvent, nextVersionNumber } from "../store";
+import { acquireCoachLock, findConversations, getActiveVersion, getConfig, listPersonas, logCoachEvent, nextVersionNumber, releaseCoachLock } from "../store";
 
 /** Makes sure every train persona has a finished, labeled seed-1 conversation on this version. */
 export async function ensureBaseline(version: number, agentTurn: AgentTurnFn, round?: string) {
@@ -26,6 +26,15 @@ export async function ensureBaseline(version: number, agentTurn: AgentTurnFn, ro
 export async function runRound(opts: { agentTurn?: AgentTurnFn; round?: string } = {}) {
   const agentTurn = opts.agentTurn ?? (await loadRunTurn());
   const round = opts.round ?? `r_${Date.now()}`;
+  if (!(await acquireCoachLock(round))) throw new Error("Another coach round is already running (pnpm evolve or the web app). Try again when it finishes.");
+  try {
+    return await runRoundLocked(round, agentTurn);
+  } finally {
+    await releaseCoachLock(round);
+  }
+}
+
+async function runRoundLocked(round: string, agentTurn: AgentTurnFn) {
   const baseVersion = await getActiveVersion();
   const base = await getConfig(baseVersion);
 

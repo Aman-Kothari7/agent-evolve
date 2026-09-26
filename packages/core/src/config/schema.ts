@@ -45,7 +45,7 @@ export const TemplateParam = z.discriminatedUnion("type", [
 export const TemplateTool = z.object({
   kind: z.literal("template"),
   ...toolCommon,
-  collection: z.enum(["pricing", "slots", "knowledge"]),
+  collection: z.enum(["limits", "slots", "knowledge"]),
   params: z.record(z.string(), TemplateParam),
   pipeline: z.array(z.record(z.string(), z.unknown())).min(1),
 });

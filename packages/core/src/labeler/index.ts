@@ -16,38 +16,37 @@ export function transcriptText(c: Conversation): string {
 const QUESTIONS = {
   intent: {
     type: "choice",
-    instructions: "What did the customer mainly come for?",
+    instructions: "What did the visitor mainly come for?",
     criteria: {
-      pricing: "a price or quote",
-      sso_security: "SSO, security, audit logs or compliance",
-      integrations: "integrations with other tools",
-      scheduling: "booking a demo or call",
-      trial: "a free trial or cheap self-serve option",
-      competitor: "comparing with a competitor",
+      connection: "connecting to a cluster or connection errors",
+      limits: "product limits, tiers, or version requirements",
+      feature_setup: "how to set up a feature (embeddings, MCP, search, etc.)",
+      migration: "migrating a database to MongoDB",
+      production_incident: "a production problem or outage",
+      learning: "learning or a student/class/hobby project",
       other: "something else",
     },
   },
   dropStage: {
     type: "choice",
-    instructions: "At which stage did the conversation stall or the customer leave? Choose none if it ended well.",
-    criteria: { greeting: null, discovery: null, pricing: null, qualification: null, scheduling: null, none: "ended well" },
+    instructions: "At which stage did the conversation stall or the visitor leave? Choose none if it ended well.",
+    criteria: { greeting: null, diagnosis: "understanding the problem", answer: "giving the answer or fix", scheduling: "arranging a call", none: "ended well" },
   },
   failureType: {
     type: "choice",
-    instructions: "What best describes the agent's main mistake? Choose none if the agent handled it well.",
+    instructions: "What best describes the assistant's main mistake? Choose none if it handled the visitor well.",
     criteria: {
-      contact_before_price: "asked for email or contact details before giving a price",
-      wrong_quote: "quoted a wrong or inconsistent price",
-      scheduling_friction: "back-and-forth about meeting times without offering concrete slots",
-      unqualified_booking: "booked a sales call for a very small team or individual who should use the trial",
-      missed_qualification: "never learned team size or need, or never offered a demo to a good-fit buyer",
-      generic_answer: "vague or generic answers that did not address the question",
+      generic_answer: "vague, generic advice that didn't address the actual problem",
+      wrong_fact: "stated an incorrect limit, version, or product fact",
+      scheduling_friction: "back-and-forth about meeting times without offering concrete open times",
+      unnecessary_meeting: "booked or pushed a call for someone who only needed docs or the free tier",
+      missed_meeting: "didn't get a call booked for someone with a migration or production incident who needed one",
       none: "no significant mistake",
     },
   },
   pushiness: {
     type: "score",
-    instructions: "How pushy was the agent toward sales calls or collecting contact details?",
+    instructions: "How pushy was the assistant toward booking calls?",
     criteria: ["not pushy", "slightly pushy", "pushy", "very pushy"],
   },
 } as const;
@@ -55,14 +54,14 @@ const QUESTIONS = {
 export async function labelConversation(c: Conversation): Promise<{ labels: Labels; summary: string }> {
   const transcript = transcriptText(c);
   const outcomeLine = c.outcome
-    ? `Outcome: ${c.outcome.booked ? "demo booked" : "no booking"}; ${c.outcome.trialSent ? "trial link sent" : "no trial link"}; ${c.outcome.left ? "customer left" : "customer stayed"}${c.outcome.quoteCorrect === false ? "; quote was wrong" : ""}.`
+    ? `Outcome: ${c.outcome.booked ? "demo booked" : "no booking"}; ${c.outcome.trialSent ? "signup link sent" : "no signup link"}; ${c.outcome.left ? "customer left" : "customer stayed"}${c.outcome.quoteCorrect === false ? "; answer missed the correct fix or fact" : ""}.`
     : "";
 
   const [judged, summaryRes] = await Promise.all([
     evaluate({ model: jevModel(), state: { transcript, outcome: outcomeLine }, questions: QUESTIONS }),
     generateText({
       model: chatModel(MODELS.summary),
-      prompt: `Summarize this sales-chat conversation in 2-3 sentences for an analyst: what the customer wanted, what the agent did (including tools), where it went well or wrong, and the outcome. No preamble.\n\n${transcript}\n\n${outcomeLine}`,
+      prompt: `Summarize this MongoDB Atlas support/sales chat in 2-3 sentences for an analyst: what the customer wanted, what the agent did (including tools), where it went well or wrong, and the outcome. No preamble.\n\n${transcript}\n\n${outcomeLine}`,
       temperature: 0,
     }),
   ]);

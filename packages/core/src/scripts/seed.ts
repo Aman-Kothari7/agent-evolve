@@ -2,10 +2,10 @@
 //   pnpm seed            -> refresh static data; insert v1 only if no configs exist
 //   pnpm seed -- --reset -> also wipe configs, conversations, bookings, experiments, coach events
 import { AgentConfig } from "../config/schema";
-import { BILLING_RULES, KNOWLEDGE, makeSlots, PRICING } from "../data/business";
+import { KNOWLEDGE, LIMITS, makeSlots } from "../data/business";
 import { DEMO_PERSONAS, generatePracticePersonas } from "../data/personas";
 import { V1_CONFIG } from "../data/v1-config";
-import { closeDb, CONVERSATION_VECTOR_INDEX, getDb, insertConfigDoc, activateVersion } from "../store";
+import { closeDb, CONVERSATION_VECTOR_INDEX, getDb, insertConfigDoc, activateVersion, KNOWLEDGE_VECTOR_INDEX } from "../store";
 
 const reset = process.argv.includes("--reset");
 const db = await getDb();
@@ -20,19 +20,20 @@ async function replaceAll(name: string, docs: Record<string, unknown>[]) {
 console.log(`Seeding database "${db.databaseName}"${reset ? " (RESET)" : ""}`);
 
 if (reset) {
-  for (const name of ["configs", "settings", "conversations", "bookings", "experiments", "coach_events"]) {
+  for (const name of ["configs", "settings", "conversations", "bookings", "experiments", "coach_events", "locks"]) {
     await db.collection(name).deleteMany({});
   }
   console.log("  wiped configs, settings, conversations, bookings, experiments, coach_events");
 }
 
-await replaceAll("pricing", [...PRICING.map((p) => ({ ...p })), { _id: "billing_rules", ...BILLING_RULES }]);
+await db.collection("pricing").drop().catch(() => {});
+await replaceAll("limits", LIMITS.map((l) => ({ ...l })));
 await replaceAll("knowledge", KNOWLEDGE.map((k) => ({ ...k })));
 await replaceAll("slots", makeSlots());
 const personas = [...DEMO_PERSONAS, ...generatePracticePersonas()];
 await replaceAll("personas", personas);
-const qualified = personas.filter((p) => p.qualified).length;
-console.log(`  personas: ${personas.filter((p) => p.split === "train").length} train, ${personas.filter((p) => p.split === "heldout").length} held-out, ${personas.filter((p) => p.split === "demo").length} demo; ${qualified} qualified`);
+const qualified = personas.filter((p) => p.qualified).length; // needs a call
+console.log(`  personas: ${personas.filter((p) => p.split === "train").length} train, ${personas.filter((p) => p.split === "heldout").length} held-out, ${personas.filter((p) => p.split === "demo").length} demo; ${qualified} need a call`);
 
 if ((await db.collection("configs").countDocuments()) === 0) {
   await insertConfigDoc({ version: 1, parentVersion: null, status: "active", config: AgentConfig.parse(V1_CONFIG) });
@@ -73,6 +74,18 @@ if (existing.length === 0) {
   console.log(`  vector index ${CONVERSATION_VECTOR_INDEX}: created (builds in the background)`);
 } else {
   console.log(`  vector index ${CONVERSATION_VECTOR_INDEX}: exists (${(existing[0] as { status?: string }).status ?? "unknown"})`);
+}
+
+const kcol = db.collection("knowledge");
+if ((await kcol.listSearchIndexes(KNOWLEDGE_VECTOR_INDEX).toArray()).length === 0) {
+  await kcol.createSearchIndex({
+    name: KNOWLEDGE_VECTOR_INDEX,
+    type: "vectorSearch",
+    definition: { fields: [{ type: "autoEmbed", modality: "text", path: "text", model: "voyage-4" }] },
+  });
+  console.log(`  vector index ${KNOWLEDGE_VECTOR_INDEX}: created (builds in the background)`);
+} else {
+  console.log(`  vector index ${KNOWLEDGE_VECTOR_INDEX}: exists`);
 }
 
 await closeDb();
