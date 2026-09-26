@@ -5,6 +5,7 @@ export * from "./types";
 export * from "./models";
 export * from "./store";
 export { runRound, ensureBaseline } from "./evolve";
-export { labelConversation, labelPending, transcriptText } from "./labeler";
+export { labelConversation, labelPending, transcriptText, describeOutcome } from "./labeler";
+export { classifyConversations } from "./classifier";
 export { runConversation, loadRunTurn } from "./simulator/run";
 export { runTurn } from "./runtime";

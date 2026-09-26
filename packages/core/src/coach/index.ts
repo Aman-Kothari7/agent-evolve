@@ -1,5 +1,6 @@
 import { generateText, stepCountIs, tool } from "ai";
 import { z } from "zod";
+import { classifyConversations } from "../classifier";
 import { applyProposal } from "../config/patch";
 import type { AgentConfig, Proposal } from "../config/schema";
 import { transcriptText } from "../labeler";
@@ -36,9 +37,10 @@ Ops: {"op":"set","path":"tools.get_slots.enabled","value":true} | {"op":"set","p
 
 HOW TO WORK
 1. Use stats (group by labels.failureType or labels.intent on the active version) to find where the goal fails most.
+1b. If the fixed labels don't capture what the goal or the operator focus is about, use classify to ask Jev your own question of every conversation (e.g. 'did the assistant offer a call to someone who didn't need one?'), then group stats by custom.<name>.
 2. Use search and read to study real conversations for that failure: exactly what the assistant said, which tools it called, and which tools were unavailable.
 3. Check list_experiments so you don't repeat a rejected change.
-4. Propose ONE coherent change (several ops are fine if they form one fix, e.g. enable a tool + add a widget for it + rewrite its description). Prefer structural fixes (tools, state, rules, widgets, context) over rewording instructions when the evidence supports it. Cite 2-5 evidence conversation ids and target the failed conversations it should fix (targetFailureType and/or targetIntent). Labels can be noisy, so check that failed conversations match your target.
+4. Propose ONE coherent change (several ops are fine if they form one fix, e.g. enable a tool + add a widget for it + rewrite its description). Prefer structural fixes (tools, state, rules, widgets, context) over rewording instructions when the evidence supports it. Cite 2-5 evidence conversation ids and target the failed conversations it should fix (targetFailureType, targetIntent, and/or targetCustomLabel from classify). Labels can be noisy, so check that failed conversations match your target.
 The change is tested on practice visitors who failed that way; it's kept only if they improve without breaking visitors who already succeeded.
 
 CURRENT CONFIG (v${config.version}):
@@ -62,6 +64,7 @@ function summarizeOutput(tool: string, out: unknown): unknown {
         summary: String(r.summary ?? "").slice(0, 160),
       })),
     };
+  if (tool === "classify") return out;
   if (tool === "read") return { conversationId: (out as { conversationId?: string }).conversationId, labels: o.labels, success: (o.outcome as { success?: boolean } | undefined)?.success, transcriptPreview: String(o.transcript ?? "").slice(0, 400) };
   if (Array.isArray(out)) return out.slice(0, 12);
   return out;
@@ -78,12 +81,35 @@ export async function runCoach(opts: { round: string; config: AgentConfig; newVe
     stats: tool({
       description: "Counts, successes, bookings and leaves per group for sim conversations on a config version.",
       inputSchema: z.object({
-        groupBy: z.enum(["labels.failureType", "labels.intent", "labels.dropStage", "outcome.qualified"]),
+        groupBy: z
+          .string()
+          .describe('One of labels.failureType, labels.intent, labels.dropStage, outcome.qualified, or a label you created with classify: "custom.<name>"'),
         version: z.number().int().optional().describe(`defaults to the active version (${v})`),
         onlyQualified: z.boolean().optional(),
       }),
-      execute: async ({ groupBy, version, onlyQualified }) =>
-        conversationStats(groupBy, { configVersion: version ?? v, source: "sim", ...(onlyQualified ? { "outcome.qualified": true } : {}) }),
+      execute: async ({ groupBy, version, onlyQualified }) => {
+        const field = groupBy.startsWith("custom.") ? `labels.${groupBy}` : groupBy;
+        if (!/^(labels\.(failureType|intent|dropStage|custom\.[a-z0-9_]+)|outcome\.qualified)$/.test(field)) return { error: `Can't group by ${groupBy}` };
+        return conversationStats(field, { configVersion: version ?? v, source: "sim", ...(onlyQualified ? { "outcome.qualified": true } : {}) });
+      },
+    }),
+    classify: tool({
+      description:
+        "Ask Jev (a fast classifier) a NEW question about every practice conversation on a version, when the fixed labels don't capture the pattern your goal or focus needs. Stores the answer on each conversation as custom.<name> (usable in stats groupBy and in propose targetCustomLabel) and returns the distribution with success counts and failed examples.",
+      inputSchema: z.object({
+        name: z.string().describe("lowercase_with_underscores, e.g. call_offered_to_learner"),
+        question: z.string().describe("A specific question about the conversation, e.g. 'Did the assistant offer or book an engineer call for a visitor who is a student or has no production workload?'"),
+        type: z.enum(["boolean", "choice"]),
+        options: z.record(z.string(), z.string()).optional().describe("For choice: value -> description (2-8 values)"),
+        version: z.number().int().optional().describe(`defaults to the active version (${v})`),
+      }),
+      execute: async ({ name, question, type, options, version }) => {
+        try {
+          return await classifyConversations({ name, question, type, options, version: version ?? v });
+        } catch (e) {
+          return { error: e instanceof Error ? e.message : String(e) };
+        }
+      },
     }),
     search: tool({
       description:
@@ -129,6 +155,7 @@ export async function runCoach(opts: { round: string; config: AgentConfig; newVe
         reason: z.string().describe("One sentence: what pattern you saw and why this fixes it"),
         targetFailureType: z.enum(FAILURE_TYPES).optional().describe("Failed conversations with this Jev failure label"),
         targetIntent: z.enum(["connection", "limits", "feature_setup", "migration", "production_incident", "learning", "other"]).optional().describe("Or/and: failed conversations with this Jev intent label"),
+        targetCustomLabel: z.object({ name: z.string(), value: z.string() }).optional().describe("Or/and: failed conversations where a label you created with classify has this value"),
         evidenceConversationIds: z.array(z.string()).min(1),
         ops: z
           .array(z.object({ op: z.enum(["set", "add", "remove"]), path: z.string(), value: z.any().optional() }))
@@ -142,10 +169,11 @@ export async function runCoach(opts: { round: string; config: AgentConfig; newVe
           targetFilter: {
             ...(p.targetFailureType ? { "labels.failureType": p.targetFailureType } : {}),
             ...(p.targetIntent ? { "labels.intent": p.targetIntent } : {}),
+            ...(p.targetCustomLabel ? { [`labels.custom.${p.targetCustomLabel.name}`]: p.targetCustomLabel.value } : {}),
           },
           ops: p.ops as Proposal["ops"],
         };
-        if (!p.targetFailureType && !p.targetIntent) return { ok: false, errors: ["Give targetFailureType and/or targetIntent so the change can be tested on the visitors it should fix."] };
+        if (!p.targetFailureType && !p.targetIntent && !p.targetCustomLabel) return { ok: false, errors: ["Give targetFailureType, targetIntent, and/or targetCustomLabel so the change can be tested on the visitors it should fix."] };
         const res = applyProposal(config, proposal, newVersion);
         if (!res.ok) {
           await logCoachEvent(round, "error", { stage: "validate", errors: res.errors });

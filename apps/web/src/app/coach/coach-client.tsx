@@ -18,7 +18,7 @@ function phaseOf(e: Ev): string {
   const p = e.payload;
   if (e.type === "test_progress") return p.stage === "baseline" ? "baseline" : "test";
   if (e.type === "thinking" && String(p.text ?? "").startsWith("Round started")) return "baseline";
-  if (e.type === "tool_call") return p.tool === "stats" ? "diagnose" : "investigate";
+  if (e.type === "tool_call") return p.tool === "stats" || p.tool === "classify" ? "diagnose" : "investigate";
   if (e.type === "thinking") return "investigate";
   if (e.type === "proposal" || (e.type === "error" && p.stage === "validate")) return "propose";
   if (e.type === "decision" || e.type === "error") return "decide";
@@ -27,7 +27,7 @@ function phaseOf(e: Ev): string {
 
 const PHASES: Omit<Phase, "events">[] = [
   { key: "baseline", title: "Baseline", blurb: "Practice visitors talk to the live config. Jev labels every conversation." },
-  { key: "diagnose", title: "Diagnose", blurb: "Aggregations over the labeled conversations show where the goal fails." },
+  { key: "diagnose", title: "Diagnose", blurb: "Aggregations over Jev labels, plus new labels the coach asks Jev for on demand." },
   { key: "investigate", title: "Investigate", blurb: "Hybrid search ($rankFusion) and full transcripts for the failing cases." },
   { key: "propose", title: "Propose", blurb: "One typed change to the harness config, with evidence." },
   { key: "test", title: "Test", blurb: "Visitors who failed that way, plus ones that must not break." },
@@ -386,7 +386,15 @@ function ToolCall({ p, time }: { p: Record<string, unknown>; time: React.ReactNo
   const input = (p.input ?? {}) as Record<string, unknown>;
   const out = p.output;
   const label =
-    tool === "stats" ? `group by ${String(input.groupBy)}` : tool === "search" ? `“${String(input.query)}”` : tool === "read" ? `conversation ${String(input.conversationId).slice(0, 8)}` : "past experiments";
+    tool === "stats"
+      ? `group by ${String(input.groupBy)}`
+      : tool === "classify"
+        ? `new label ${String(input.name)}: “${String(input.question)}”`
+        : tool === "search"
+          ? `“${String(input.query)}”`
+          : tool === "read"
+            ? `conversation ${String(input.conversationId).slice(0, 8)}`
+            : "past experiments";
   return (
     <div className="rise overflow-hidden rounded-xl border">
       <div className="flex items-center gap-2 bg-muted/50 px-3 py-1.5">
@@ -396,6 +404,7 @@ function ToolCall({ p, time }: { p: Record<string, unknown>; time: React.ReactNo
       </div>
       <div className="px-3 py-2">
         {tool === "stats" && Array.isArray(out) && <StatsBars rows={out as Record<string, unknown>[]} />}
+        {tool === "classify" && out ? <ClassifyResult out={out as Record<string, unknown>} /> : null}
         {tool === "search" && <SearchHits out={(out ?? {}) as Record<string, unknown>} />}
         {tool === "read" && out ? (
           <pre className="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-muted-foreground">{String((out as Record<string, unknown>).transcriptPreview ?? "")}</pre>
@@ -459,6 +468,34 @@ function SearchHits({ out }: { out: Record<string, unknown> }) {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+function ClassifyResult({ out }: { out: Record<string, unknown> }) {
+  if (out.error) return <p className="font-mono text-xs text-fail">{String(out.error)}</p>;
+  const dist = (out.distribution as { value: string; n: number; success: number; examples: string[] }[]) ?? [];
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="rounded-md bg-ink px-1.5 py-0.5 font-mono text-[10px] text-white">Jev · on-demand label</span>
+        <span className="font-mono text-[11px] text-muted-foreground">
+          {String(out.classified)} conversations on v{String(out.version)} in {String(out.seconds)}s → saved as custom.{String(out.name)}
+        </span>
+      </div>
+      <StatsBars rows={dist.map((d) => ({ _id: d.value, n: d.n, success: d.success }))} />
+      {dist
+        .filter((d) => d.examples.length)
+        .map((d) => (
+          <div key={d.value} className="flex flex-wrap items-center gap-1.5 text-[11px]">
+            <span className="text-muted-foreground">failed where {d.value}:</span>
+            {d.examples.map((id) => (
+              <Link key={id} href={`/conversations/${id}`} className="font-mono text-agent hover:underline">
+                {id.slice(0, 8)}
+              </Link>
+            ))}
+          </div>
+        ))}
     </div>
   );
 }

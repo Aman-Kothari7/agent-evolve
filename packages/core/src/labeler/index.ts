@@ -13,6 +13,15 @@ export function transcriptText(c: Conversation): string {
     .join("\n");
 }
 
+export function describeOutcome(c: Conversation): string {
+  if (!c.outcome) return "";
+  const o = c.outcome;
+  return (
+    `Outcome: ${o.booked ? "engineer call booked" : "no call booked"}; ${o.trialSent ? "signup link sent" : "no signup link"}; ${o.left ? "visitor left" : "visitor stayed"}${o.quoteCorrect === false ? "; answer missed the correct fix or fact" : ""}. ` +
+    `This visitor ${o.qualified ? "NEEDED a call with an engineer" : "did NOT need a call (docs or the free tier were the right answer)"}. GOAL ${o.success ? "MET" : "MISSED"}.`
+  );
+}
+
 const QUESTIONS = {
   intent: {
     type: "choice",
@@ -53,11 +62,7 @@ const QUESTIONS = {
 
 export async function labelConversation(c: Conversation): Promise<{ labels: Labels; summary: string }> {
   const transcript = transcriptText(c);
-  const outcomeLine = c.outcome
-    ? `Outcome: ${c.outcome.booked ? "engineer call booked" : "no call booked"}; ${c.outcome.trialSent ? "signup link sent" : "no signup link"}; ${c.outcome.left ? "visitor left" : "visitor stayed"}${c.outcome.quoteCorrect === false ? "; answer missed the correct fix or fact" : ""}. ` +
-      `This visitor ${c.outcome.qualified ? "NEEDED a call with an engineer" : "did NOT need a call (docs or the free tier were the right answer)"}. ` +
-      `GOAL ${c.outcome.success ? "MET" : "MISSED"}${c.outcome.success ? "" : " — pick the failure type that explains why; don't choose none"}.`
-    : "";
+  const outcomeLine = describeOutcome(c) + (c.outcome && !c.outcome.success ? " Pick the failure type that explains why; don't choose none." : "");
 
   const [judged, summaryRes] = await Promise.all([
     evaluate({ model: jevModel(), state: { transcript, outcome: outcomeLine }, questions: QUESTIONS }),
