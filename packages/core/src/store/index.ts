@@ -185,6 +185,7 @@ export type HybridHit = {
   personaId?: string;
   labels?: Labels;
   outcome?: Outcome;
+  grade?: { success: boolean; failed: string[] };
   score?: number;
   foundBy: string[];
 };
@@ -209,7 +210,7 @@ export async function hybridSearchConversations(query: string, f: ConversationFi
     { $search: { index: CONVERSATION_TEXT_INDEX, compound: { must: [{ text: { query, path: "summary" } }], ...(textFilter.length ? { filter: textFilter } : {}) } } },
     { $limit: 20 },
   ];
-  const project = { _id: 1, summary: 1, configVersion: 1, personaId: 1, labels: 1, outcome: 1 };
+  const project = { _id: 1, summary: 1, configVersion: 1, personaId: 1, labels: 1, outcome: 1, grade: 1 };
   const col = await conversations();
   try {
     const rows = await col
@@ -250,7 +251,8 @@ export async function hybridSearchConversations(query: string, f: ConversationFi
 }
 
 // Counts and success rate per group, e.g. groupBy "labels.failureType".
-export async function conversationStats(groupBy: string, filter: Record<string, unknown> = {}) {
+// successField: "outcome.success" (hidden practice rule) or "grade.success" (this round's rubric, graded by Jev).
+export async function conversationStats(groupBy: string, filter: Record<string, unknown> = {}, successField = "outcome.success") {
   return (await conversations())
     .aggregate([
       { $match: { outcome: { $exists: true }, ...filter } },
@@ -258,7 +260,7 @@ export async function conversationStats(groupBy: string, filter: Record<string, 
         $group: {
           _id: `$${groupBy}`,
           n: { $sum: 1 },
-          success: { $sum: { $cond: ["$outcome.success", 1, 0] } },
+          success: { $sum: { $cond: [`$${successField}`, 1, 0] } },
           booked: { $sum: { $cond: ["$outcome.booked", 1, 0] } },
           left: { $sum: { $cond: ["$outcome.left", 1, 0] } },
         },
@@ -363,7 +365,7 @@ export async function getBookingFor(conversationId: string) {
 
 // ---------- Coach events + experiments ----------
 
-export type CoachEventType = "thinking" | "tool_call" | "proposal" | "test_progress" | "decision" | "error";
+export type CoachEventType = "thinking" | "tool_call" | "proposal" | "test_progress" | "decision" | "error" | "rubric" | "grading";
 
 export async function logCoachEvent(round: string, type: CoachEventType, payload: unknown) {
   await (await getDb()).collection("coach_events").insertOne({ round, type, payload, ts: new Date() });

@@ -9,3 +9,4 @@ export { labelConversation, labelPending, transcriptText, describeOutcome } from
 export { classifyConversations } from "./classifier";
 export { runConversation, loadRunTurn } from "./simulator/run";
 export { runTurn } from "./runtime";
+export { writeRubric, gradeConversation, gradeVersion, type Rubric, type Grade } from "./judge";

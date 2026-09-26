@@ -1,8 +1,9 @@
 import type { AgentConfig, Proposal, TemplateTool } from "../config/schema";
 import { executeTemplateTool, sampleInputs } from "../config/template";
+import { gradeConversation, type Rubric } from "../judge";
 import { pool, runConversation, type AgentTurnFn } from "../simulator/run";
 import {
-  activateVersion, findConversations, insertConfigDoc, insertExperiment, listPersonas, logCoachEvent, setConfigStatus,
+  activateVersion, findConversations, getConversation, insertConfigDoc, insertExperiment, listPersonas, logCoachEvent, setConfigStatus,
   type TestResult,
 } from "../store";
 
@@ -36,8 +37,9 @@ export async function evaluateProposal(opts: {
   candidate: AgentConfig;
   proposal: Proposal;
   agentTurn: AgentTurnFn;
+  rubric: Rubric;
 }): Promise<{ decision: Decision; test: TestResult }> {
-  const { round, baseVersion, base, candidate, proposal, agentTurn } = opts;
+  const { round, baseVersion, base, candidate, proposal, agentTurn, rubric } = opts;
   const version = candidate.version;
   await insertConfigDoc({ version, parentVersion: baseVersion, status: "candidate", config: candidate, change: { ...proposal } });
 
@@ -68,10 +70,11 @@ export async function evaluateProposal(opts: {
     return out;
   };
 
-  const failed = await findConversations({ configVersion: baseVersion, source: "sim", "outcome.success": false, ...proposal.targetFilter } as never, 200);
+  // Before: conversations on the live version that FAIL this round's rubric (graded by Jev), matching the change's target.
+  const failed = await findConversations({ configVersion: baseVersion, source: "sim", "grade.rubricId": rubric._id, "grade.success": false, ...proposal.targetFilter } as never, 200);
   const target = pick(failed, MAX_TARGET);
   const targetIds = new Set(target.map((t) => t.personaId));
-  const succeeded = await findConversations({ configVersion: baseVersion, source: "sim", "outcome.success": true } as never, 200);
+  const succeeded = await findConversations({ configVersion: baseVersion, source: "sim", "grade.rubricId": rubric._id, "grade.success": true } as never, 200);
   const regression = pick(succeeded.filter((c) => !targetIds.has(c.personaId ?? "")), MAX_REGRESSION);
 
   if (!target.length) return finish("rejected", empty(`No failed conversations on v${baseVersion} match ${JSON.stringify(proposal.targetFilter)}`));
@@ -82,8 +85,10 @@ export async function evaluateProposal(opts: {
   const results = await pool(jobs, 12, async (j) => {
     try {
       const r = await runConversation({ persona: train.get(j.personaId)!, configVersion: version, seed: j.seed, runId: `test_${round}`, agentTurn });
-      await logCoachEvent(round, "test_progress", { done: ++done, of: jobs.length, set: j.set, personaId: j.personaId, success: r.outcome.success, conversationId: r.conversationId });
-      return { ...j, outcome: r.outcome };
+      // After: the same frozen rubric, graded by Jev.
+      const grade = await gradeConversation((await getConversation(r.conversationId))!, rubric);
+      await logCoachEvent(round, "test_progress", { done: ++done, of: jobs.length, set: j.set, personaId: j.personaId, success: grade.success, failed: grade.failed, conversationId: r.conversationId });
+      return { ...j, outcome: { ...r.outcome, success: grade.success } };
     } catch (e) {
       await logCoachEvent(round, "error", { stage: "simulate", personaId: j.personaId, error: e instanceof Error ? e.message : String(e) });
       return { ...j, outcome: null };

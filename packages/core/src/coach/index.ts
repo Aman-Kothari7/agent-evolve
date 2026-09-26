@@ -2,6 +2,7 @@ import { generateText, stepCountIs, tool } from "ai";
 import { z } from "zod";
 import { classifyConversations } from "../classifier";
 import { applyProposal } from "../config/patch";
+import type { Rubric } from "../judge";
 import type { AgentConfig, Proposal } from "../config/schema";
 import { transcriptText } from "../labeler";
 import { chatModel, MODELS } from "../models";
@@ -16,11 +17,11 @@ const TOOL_CATALOG = `- search_docs {query}: semantic search over the MongoDB do
 - lookup_limits {tier?: free|flex|dedicated, feature?}: returns rows from the limits table: tiers {tier, maxSearchIndexes, multiRegion, forProduction, bestFor} and features {feature, minVersion}.
 - send_signup_link {}: returns the free-tier signup link and the getting-started guide.`;
 
-function systemPrompt(config: AgentConfig, focus?: string): string {
+function systemPrompt(config: AgentConfig, focus?: string, rubric?: Rubric): string {
   return `You are the coach for the MongoDB Atlas website chat assistant (support + sales). Your job: improve the assistant's HARNESS CONFIG so it reaches its goal more often.
 
-GOAL (locked): ${config.goal.description}
-${focus ? `\nOPERATOR FOCUS FOR THIS ROUND: ${focus}\nStart by turning it into a classify question. Propose a change for it if the conversation evidence supports it; the locked goal and the test still decide whether the change is kept.\n` : ""}
+GOAL: ${rubric?.goal ?? config.goal.description}
+${rubric ? `\nSUCCESS RUBRIC FOR THIS ROUND (written by an independent judge and frozen; you cannot change it). A conversation succeeds when every applicable criterion passes; Jev grades every conversation with it, before and after your change:\n${rubric.criteria.map((c) => `- ${c.id}: ${c.kind === "event" ? `event ${c.event}` : `${c.question} (pass = ${c.passWhen ?? "yes"})`}${c.appliesWhen ? ` — applies when: ${c.appliesWhen}` : ""}`).join("\n")}\nIn stats and search, success means passing this rubric.\n` : ""}${focus ? `\nOPERATOR FOCUS FOR THIS ROUND: ${focus}\nStart by turning it into a classify question. Propose a change for it if the conversation evidence supports it; the locked goal and the test still decide whether the change is kept.\n` : ""}
 THE TOOL CATALOG (fixed; you cannot add tools or change what a tool does)
 ${TOOL_CATALOG}
 For each tool in the config you CAN: turn it on or off (tools.<key>.enabled), rewrite the description the assistant reads to decide when to call it (tools.<key>.description), rename it (tools.<key>.name, lowercase_with_underscores), gate it on known state facts (tools.<key>.requires), and cap uses per chat (tools.<key>.maxUses). You CANNOT create, remove, or re-implement tools.
@@ -72,8 +73,8 @@ function summarizeOutput(tool: string, out: unknown): unknown {
 
 export type CoachResult = { proposal: Proposal | null; newConfig: AgentConfig | null; steps: number };
 
-export async function runCoach(opts: { round: string; config: AgentConfig; newVersion: number; focus?: string }): Promise<CoachResult> {
-  const { round, config, newVersion, focus } = opts;
+export async function runCoach(opts: { round: string; config: AgentConfig; newVersion: number; focus?: string; rubric?: Rubric }): Promise<CoachResult> {
+  const { round, config, newVersion, focus, rubric } = opts;
   let accepted: { proposal: Proposal; newConfig: AgentConfig } | null = null;
   const v = config.version;
 
@@ -90,7 +91,7 @@ export async function runCoach(opts: { round: string; config: AgentConfig; newVe
       execute: async ({ groupBy, version, onlyQualified }) => {
         const field = groupBy.startsWith("custom.") ? `labels.${groupBy}` : groupBy;
         if (!/^(labels\.(failureType|intent|dropStage|custom\.[a-z0-9_]+)|outcome\.qualified)$/.test(field)) return { error: `Can't group by ${groupBy}` };
-        return conversationStats(field, { configVersion: version ?? v, source: "sim", ...(onlyQualified ? { "outcome.qualified": true } : {}) });
+        return conversationStats(field, { configVersion: version ?? v, source: "sim", ...(onlyQualified ? { "outcome.qualified": true } : {}) }, rubric ? "grade.success" : "outcome.success");
       },
     }),
     classify: tool({
@@ -125,11 +126,15 @@ export async function runCoach(opts: { round: string; config: AgentConfig; newVe
         k: z.number().int().min(1).max(10).optional(),
       }),
       execute: async ({ query, version, k, ...labels }) => {
-        const r = await hybridSearchConversations(query, { configVersion: version ?? v, source: "sim", ...labels }, k ?? 6);
+        // Under a rubric, "success" means passing the rubric (graded by Jev), which isn't an index filter: post-filter.
+        const { success, ...indexed } = labels as typeof labels & { success?: boolean };
+        const want = k ?? 6;
+        const r = await hybridSearchConversations(query, { configVersion: version ?? v, source: "sim", ...indexed, ...(rubric ? {} : { success }) }, rubric && success !== undefined ? want * 3 : want);
+        if (rubric && success !== undefined) r.results = r.results.filter((x) => x.grade?.success === success).slice(0, want);
         return {
           method: r.method,
           filter: r.filter,
-          results: r.results.map((x) => ({ id: x._id, summary: x.summary, labels: x.labels, success: x.outcome?.success, needsCall: x.outcome?.qualified, foundBy: x.foundBy })),
+          results: r.results.map((x) => ({ id: x._id, summary: x.summary, labels: x.labels, success: rubric ? x.grade?.success : x.outcome?.success, failedCriteria: x.grade?.failed, foundBy: x.foundBy })),
         };
       },
     }),
@@ -188,7 +193,7 @@ export async function runCoach(opts: { round: string; config: AgentConfig; newVe
 
   const r = await generateText({
     model: chatModel(MODELS.coach),
-    system: systemPrompt(config, focus),
+    system: systemPrompt(config, focus, rubric),
     prompt: "Diagnose the biggest reason the goal is being missed on the active version and propose one change.",
     tools,
     // Stop once a valid proposal is in, or after 16 steps. (hasToolCall alone would also stop on invalid proposals.)

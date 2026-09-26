@@ -41,7 +41,7 @@ export async function classifyConversations(spec: ClassifySpec, concurrency = 12
           const r = await evaluate({ model: jevModel(), state: { transcript: transcriptText(c), outcome: describeOutcome(c) }, questions: { q } });
           const a = r.answers.q as { type: string; probability?: number; choice?: string };
           const value = a.type === "boolean" ? ((a.probability ?? 0) >= 0.5 ? "yes" : "no") : String(a.choice);
-          answers.push({ id: c._id, value, success: !!c.outcome?.success });
+          answers.push({ id: c._id, value, success: (c as { grade?: { success: boolean } }).grade?.success ?? !!c.outcome?.success });
         } catch {
           // skip conversations Jev couldn't answer; they simply get no custom label
         }
