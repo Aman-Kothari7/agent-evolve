@@ -1,7 +1,7 @@
 # Demo script: Agent Evolve (3 minutes, voice-over)
 
 **Setup before recording**
-- App open at `/coach`, focus box filled with: `stop offering engineer calls to students and hobby projects`
+- App open at `/coach`, focus box filled with: `book the call as soon as the visitor picks a time` (goal box: leave as is)
 - Second tab on `/replay` with the compare panel set to **v2 vs v3**
 - Live config is v3 (after the two story rounds)
 - Browser zoom about 110%; close other tabs
@@ -9,7 +9,7 @@
 ---
 
 ## 0:00 – 0:15 · The problem (on /coach, before clicking)
-> "This is a support assistant for MongoDB Atlas. It answers questions and books calls with engineers. Its behavior comes from a config: instructions, tools, rules, state, and UI widgets. Agent Evolve is a harness that rewrites that config toward a goal, using evidence from its own conversations."
+> "This is goal-driven harness optimization. The agent, a MongoDB Atlas support assistant, is defined as config: instructions, tools, rules, state, and UI widgets. A coach improves that config toward a goal, and every change is graded against the goal before it's kept."
 
 **Click "Run a round on v3"** so the round runs while you show the next part.
 
@@ -28,22 +28,25 @@ Point at the tag **v3 · widget slot_picker**.
 **Baseline / Diagnose**
 > "Every round starts from real conversations. Thirty-six practice visitors talked to v3 through the real agent, and code graded each one against a hidden success rule: was a real slot booked, was the signup link sent, was the fact correct."
 
+**Define success (rubric card)**
+> "First, an independent judge turns the goal and this round's focus into a rubric: hard facts like 'was a call booked' plus a few yes/no questions. It's frozen before the coach proposes anything. Jev grades every conversation against it in a few seconds, and it agrees with the practice set's known outcomes about 95% of the time."
+
 **Classify card**
-> "Here's the key step. The coach turns this round's focus into its own question: 'Did the assistant offer an engineer call to someone with no production workload?' Jev, a fast classifier, answers it for every conversation in about two seconds, and the answers are stored in MongoDB Atlas as new labels."
+> "Then the coach turns the focus into its own question: 'Did the visitor pick a time but the call wasn't booked right away?' Jev answers it for every conversation in about a second, and the answers are stored in MongoDB Atlas as new labels."
 
 **Investigate**
 > "Then it uses Atlas hybrid search, `$rankFusion` over vector and full-text search, filtered by those labels, and reads the failing transcripts."
 
 **Proposed patch**
-> "It proposes one change, shown as a diff: a new state fact for whether the visitor has a production workload, the calendar and booking tools gated on it, and a rule against offering calls to learners."
+> "It proposes one change, shown as a diff. Here it rewires booking so that picking a time books the call immediately, instead of asking for more details first."
 
 **Test + Decision**
-> "The change is only kept if it fixes the visitors who failed this way without breaking the ones who already succeeded. Graded by code, not by an LLM's opinion."
+> "It's only kept if more of the failing visitors now meet the goal and none of the passing ones break, graded by the same frozen rubric before and after."
 
 (If the decision hasn't landed yet, click the previous finished round in the round picker.)
 
 ## 2:30 – 3:00 · Evolution (on /versions)
-> "Every version lives in Atlas: v1, grounded answers in v2, the booking widget in v3, and the student fix now. Rejected ideas stay in the history too. The model never changed; the harness around it learned."
+> "Every version lives in Atlas: v1, grounded answers in v2, the booking widget in v3, and instant booking now. Rejected ideas stay in the history too. The model never changed; the harness around it did."
 
 ---
 
