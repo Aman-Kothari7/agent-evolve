@@ -40,9 +40,15 @@ export async function runConversation(opts: {
     if (res.ended) { endedBy = "agent"; break; }
 
     const move = await customerReply(persona, transcript, seed);
-    if (move.ended) {
+    if (move.ended === "leave") {
       await appendTurn(conversationId, { role: "customer", text: move.text, ts: new Date() });
-      endedBy = move.ended;
+      endedBy = "leave";
+      break;
+    }
+    if (move.ended === "done") {
+      // The visitor's last message (e.g. picking a slot) is still sent, so the assistant gets to act on it.
+      await agentTurn({ conversationId, configVersion, message: move.text, source: opts.source ?? "sim", personaId: persona._id, seed, runId });
+      endedBy = "done";
       break;
     }
     message = move.text;
