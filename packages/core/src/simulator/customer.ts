@@ -1,5 +1,5 @@
 import { generateText } from "ai";
-import { chatModel, MODELS } from "../models";
+import { chatModel, customerModelFor } from "../models";
 import type { Persona } from "../types";
 
 export type SimLine = { role: "customer" | "agent"; text: string };
@@ -31,7 +31,7 @@ function systemPrompt(p: Persona): string {
 
 export async function customerReply(persona: Persona, transcript: SimLine[], seed?: number): Promise<CustomerMove> {
   const r = await generateText({
-    model: chatModel(MODELS.customer),
+    model: chatModel(customerModelFor(persona._id, seed)),
     system: systemPrompt(persona),
     // From the customer's point of view the agent is the "user" talking to them.
     messages: transcript.map((l) => ({ role: l.role === "customer" ? ("assistant" as const) : ("user" as const), content: l.text })),

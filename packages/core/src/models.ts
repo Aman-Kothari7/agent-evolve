@@ -17,6 +17,15 @@ export const MODELS = {
 // comparisons between config versions stay fair). Live chats use MODELS.agent.
 export const AGENT_POOL = (process.env.MODEL_AGENT_POOL ?? `${MODELS.agent},openai/gpt-5-mini,google/gemini-2.5-flash`).split(",").map((s) => s.trim()).filter(Boolean);
 
+// Simulated visitors are spread across a pool too (stable per visitor), so large baselines aren't rate-limited.
+export const CUSTOMER_POOL = (process.env.MODEL_CUSTOMER_POOL ?? `${MODELS.customer},openai/gpt-5-nano,z-ai/glm-5.3-flash`).split(",").map((x) => x.trim()).filter(Boolean);
+
+export function customerModelFor(personaId: string, seed?: number): string {
+  let h = 7;
+  for (const ch of `${personaId}:${seed ?? 1}`) h = (h * 33 + ch.charCodeAt(0)) >>> 0;
+  return CUSTOMER_POOL[h % CUSTOMER_POOL.length];
+}
+
 export function agentModelFor(personaId?: string, seed?: number): string {
   if (!personaId) return MODELS.agent;
   const key = `${personaId}:${seed ?? 1}`;

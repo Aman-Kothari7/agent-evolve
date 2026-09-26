@@ -82,6 +82,8 @@ const BEHAVIORS: { id: string; b: Persona["behavior"] }[] = [
   { id: "impatient_scheduler", b: { maxUnhelpfulReplies: 2, maxSchedulingExchanges: 1, readiness: "ready" } },
   { id: "patient", b: { maxUnhelpfulReplies: 3, maxSchedulingExchanges: 3, readiness: "evaluating" } },
   { id: "ready", b: { maxUnhelpfulReplies: 2, maxSchedulingExchanges: 2, readiness: "ready" } },
+  { id: "skeptical", b: { maxUnhelpfulReplies: 2, maxSchedulingExchanges: 1, readiness: "browsing" } },
+  { id: "friendly", b: { maxUnhelpfulReplies: 3, maxSchedulingExchanges: 2, readiness: "evaluating" } },
 ];
 
 const NAMES = [
@@ -89,6 +91,8 @@ const NAMES = [
   "Chloe Martin", "Omar Farouk", "Grace Liu", "Ben Adler", "Zara Ahmed", "Lucas Silva", "Mia Novak", "Samir Gupta",
   "Elena Popova", "Jack Turner", "Aisha Bello", "Ryan O'Neill", "Yuki Tanaka", "Carmen Diaz", "Felix Wagner", "Nora Lindqvist",
   "Kwame Mensah", "Isla Murray", "Arjun Rao", "Leah Cohen", "Tomás Herrera", "Ingrid Berg", "Victor Chen", "Amara Obi",
+  "Priyanka Das", "Mateo Ruiz", "Sara Johansson", "Daniel Park", "Fatima Zahra", "Oliver Grant", "Mei Lin", "Jonas Keller",
+  "Nadia Petrova", "Kofi Asante", "Laura Bianchi", "Hiro Yamamoto", "Rosa Mendes", "Adam Novak", "Chen Wei", "Emma Walsh",
 ];
 const COMPANIES = ["Orbitly", "Fernbank Health", "Tradewind", "Pixelforge", "Northwave Bank", "Brightpath", "Cobalt Labs", "Uni project"];
 
