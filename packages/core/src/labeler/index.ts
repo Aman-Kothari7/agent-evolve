@@ -64,13 +64,18 @@ export async function labelConversation(c: Conversation): Promise<{ labels: Labe
   const transcript = transcriptText(c);
   const outcomeLine = describeOutcome(c) + (c.outcome && !c.outcome.success ? " Pick the failure type that explains why; don't choose none." : "");
 
-  const [judged, summaryRes] = await Promise.all([
+  // Jev labels are what matter; the summary (used for vector search) never blocks them.
+  const fallbackSummary = `Visitor: ${c.turns.find((t) => t.role === "customer")?.text.slice(0, 200) ?? ""} ${describeOutcome(c)}`;
+  const [judged, summaryText] = await Promise.all([
     evaluate({ abortSignal: AbortSignal.timeout(45_000), model: jevModel(), state: { transcript, outcome: outcomeLine }, questions: QUESTIONS }),
     generateText({
+      abortSignal: AbortSignal.timeout(30_000),
       model: chatModel(MODELS.summary),
       prompt: `Summarize this MongoDB Atlas support/sales chat in 2-3 sentences for an analyst: what the customer wanted, what the agent did (including tools), where it went well or wrong, and the outcome. No preamble.\n\n${transcript}\n\n${outcomeLine}`,
       temperature: 0,
-    }),
+    })
+      .then((r) => r.text.trim() || fallbackSummary)
+      .catch(() => fallbackSummary),
   ]);
 
   const a = judged.answers;
@@ -82,7 +87,7 @@ export async function labelConversation(c: Conversation): Promise<{ labels: Labe
     pushiness: Math.round(a.pushiness.score) + 1,
     violations: [...new Set(violations)],
   };
-  const summary = summaryRes.text.trim();
+  const summary = summaryText;
   await setLabels(c._id, labels, summary);
   return { labels, summary };
 }
