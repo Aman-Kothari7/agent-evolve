@@ -90,6 +90,7 @@ export type RunTurnInput = {
   source?: Conversation["source"];
   personaId?: string;
   seed?: number;
+  runId?: string;
 };
 
 export type RunTurnResult = {
