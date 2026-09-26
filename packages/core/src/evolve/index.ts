@@ -1,6 +1,6 @@
 import { runCoach } from "../coach";
 import { evaluateProposal } from "../evaluator";
-import { gradeVersion, writeRubric } from "../judge";
+import { calibrationFeedback, gradeVersion, writeRubric } from "../judge";
 import { labelPending } from "../labeler";
 import { loadRunTurn, pool, runConversation, type AgentTurnFn } from "../simulator/run";
 import { acquireCoachLock, findConversations, getActiveVersion, getConfig, listPersonas, logCoachEvent, nextVersionNumber, releaseCoachLock } from "../store";
@@ -44,9 +44,22 @@ async function runRoundLocked(round: string, agentTurn: AgentTurnFn, focus?: str
 
   // An independent judge turns the goal (+ focus) into a frozen rubric; Jev grades every baseline conversation with it.
   const goal = goalOverride ?? base.goal.description;
-  const rubric = await writeRubric({ round, goal, focus });
+  let rubric = await writeRubric({ round, goal, focus });
   await logCoachEvent(round, "rubric", { rubricId: rubric._id, goal, focus, summary: rubric.summary, criteria: rubric.criteria, model: rubric.model });
-  await gradeVersion(baseVersion, rubric, round);
+  let graded = await gradeVersion(baseVersion, rubric, round);
+  // Calibrate: if the rubric disagrees too often with the practice set's known outcomes, the judge revises it once.
+  if (graded.agreement < 75) {
+    const feedback = await calibrationFeedback(baseVersion, rubric);
+    const revised = await writeRubric({ round, goal, focus, feedback });
+    await logCoachEvent(round, "rubric", { rubricId: revised._id, goal, focus, summary: revised.summary, criteria: revised.criteria, model: revised.model, revised: true, previousAgreement: graded.agreement });
+    const regraded = await gradeVersion(baseVersion, revised, round);
+    if (regraded.agreement >= graded.agreement) {
+      rubric = revised;
+      graded = regraded;
+    } else {
+      await gradeVersion(baseVersion, rubric, round); // keep the better rubric's grades on the conversations
+    }
+  }
 
   const newVersion = await nextVersionNumber();
   const { proposal, newConfig } = await runCoach({ round, config: base, newVersion, focus, rubric });

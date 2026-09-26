@@ -26,7 +26,7 @@ export type Grade = { rubricId: string; success: boolean; applicable: string[]; 
 
 const JUDGE_MODEL = process.env.MODEL_JUDGE ?? "openai/gpt-5.4-mini";
 
-export async function writeRubric(opts: { round: string; goal: string; focus?: string }, attempt = 1): Promise<Rubric> {
+export async function writeRubric(opts: { round: string; goal: string; focus?: string; feedback?: string }, attempt = 1): Promise<Rubric> {
   const r = await generateText({
     model: chatModel(JUDGE_MODEL),
     temperature: 0,
@@ -56,6 +56,9 @@ How a rubric works:
 - kind "question": a yes/no question a fast classifier answers from the transcript (visitor messages, assistant replies, and markers like [tool search_docs] or [widget slot_picker]). passWhen says which answer is good.
 - kind "event": a hard fact from the tool logs. call_booked passes when a real engineer call was booked. call_not_booked passes when no call was booked. signup_link_sent passes when the free-tier signup link was sent.
 - Criteria must be observable in the transcript. Don't ask whether a fact is "correct" (the classifier can't verify it); ask whether the answer was specific and grounded in a docs search or limits lookup.
+- Prefer kind "event" (hard facts) wherever possible. Use at most 2 kind "question" criteria.
+- Keep every appliesWhen narrow and unambiguous: it must only match visitors who clearly fit (e.g. who say they are a student or on a class/hobby project). Never use catch-alls like "or otherwise not in production".
+- Criteria must not overlap: don't judge the same behavior twice in different words.
 - Cover the goal as a whole, weighted toward the focus. The rubric must stay valid no matter how the assistant is configured.
 
 Example rubric for a goal like "resolve support questions; book engineer calls only for production workloads; send learners to the free tier":
@@ -63,7 +66,7 @@ Example rubric for a goal like "resolve support questions; book engineer calls o
 2. no_call_for_learners: event call_not_booked; appliesWhen "Is the visitor a student, learner, or working on a class, hobby, or prototype project?"
 3. signup_for_learners: event signup_link_sent; appliesWhen (same learner question)
 4. grounded_answer: question "Did the assistant give a specific answer grounded in a docs search or limits lookup, rather than a guess, refusal, or vague advice?" passWhen yes; appliesWhen "Did the visitor ask a factual or technical question?"
-5. resolved_problem: question "Did the assistant name the likely cause of the visitor's problem and how to fix it?" passWhen yes; appliesWhen "Did the visitor report an error or problem?"`,  });
+5. resolved_problem: question "Did the assistant name the likely cause of the visitor's problem and how to fix it?" passWhen yes; appliesWhen "Did the visitor report an error or problem?"${opts.feedback ? `\n\nCALIBRATION FEEDBACK on your previous rubric (these conversations have known outcomes and your rubric graded them wrong). Revise the rubric so it grades cases like these correctly:\n${opts.feedback}` : ""}`,  });
   const out = r.output as { summary: string; criteria: Record<string, string | null>[] };
   const criteria: Criterion[] = out.criteria.slice(0, 6).map((c, i) => ({
     id: String(c.id || `c${i + 1}`).toLowerCase().replace(/[^a-z0-9_]/g, "_"),
@@ -134,7 +137,20 @@ export async function gradeVersion(version: number, rubric: Rubric, round?: stri
       }
     }),
   );
-  const result = { version, graded: n, success: pass, agreement: n ? Math.round((100 * agree) / n) : 0, seconds: Math.round((Date.now() - t0) / 100) / 10 };
+  const result = { version, graded: n, success: pass, agreement: n ? Math.round((100 * agree) / n) : 0, seconds: Math.round((Date.now() - t0) / 100) / 10, rubricId: rubric._id };
   if (round) await logCoachEvent(round, "grading", result);
   return result;
+}
+
+/** Conversations where the rubric disagreed with the known practice outcome, described for the judge. */
+export async function calibrationFeedback(version: number, rubric: Rubric, max = 8): Promise<string> {
+  const convos = await findConversations({ configVersion: version, source: "sim", "grade.rubricId": rubric._id, outcome: { $exists: true } } as never, 500);
+  const wrong = convos.filter((c) => (c as { grade?: Grade }).grade?.success !== !!c.outcome?.success).slice(0, max);
+  return wrong
+    .map((c) => {
+      const g = (c as { grade?: Grade }).grade!;
+      const opening = c.turns.find((t) => t.role === "customer")?.text.slice(0, 160) ?? "";
+      return `- Visitor opened with "${opening}". Known outcome: ${c.outcome?.success ? "handled well" : "NOT handled well"}. Your rubric said: ${g.success ? "pass" : `fail on ${g.failed.join(", ")}`}. Summary: ${(c.summary ?? "").slice(0, 220)}`;
+    })
+    .join("\n");
 }

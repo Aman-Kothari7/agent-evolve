@@ -336,6 +336,7 @@ function EventRow({ e }: { e: Ev }) {
       <div className="rise overflow-hidden rounded-xl border border-coach/40">
         <div className="flex flex-wrap items-center gap-2 bg-coach-soft px-3 py-1.5">
           <span className="rounded bg-coach px-1.5 py-0.5 font-mono text-[10.5px] font-semibold text-white">rubric</span>
+          {p.revised ? <span className="rounded bg-ink px-1.5 py-0.5 font-mono text-[10px] text-white">revised after calibration ({String(p.previousAgreement)}% agreement)</span> : null}
           <span className="text-sm font-medium">{String(p.summary)}</span>
           <span className="ml-auto font-mono text-[10px] text-muted-foreground">judge {String(p.model)} · frozen</span>
         </div>
