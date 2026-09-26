@@ -9,7 +9,7 @@ const code = IBM_Plex_Mono({ variable: "--font-code", subsets: ["latin"], weight
 
 export const metadata: Metadata = {
   title: "Agent Evolve",
-  description: "A support agent that rewrites its own harness toward a goal.",
+  description: "Goal-driven harness optimization: agents defined as config, improved by a coach, graded against the goal.",
 };
 
 export const dynamic = "force-dynamic";

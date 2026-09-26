@@ -49,10 +49,12 @@ export default async function OverviewPage() {
     <div className="mx-auto flex max-w-[1320px] flex-col gap-6">
       {/* Masthead */}
       <Frame className="grid bg-card lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)_minmax(0,0.45fr)]">
-        <h1 className="display px-6 py-6 text-5xl xl:text-6xl">An assistant that rewrites its own harness</h1>
+        <h1 className="display px-6 py-6 text-5xl xl:text-6xl">Goal-driven harness optimization</h1>
         <p className="border-t px-6 py-6 text-[13px] leading-snug lg:border-l lg:border-t-0">
-          A MongoDB Atlas support assistant and a coach that studies its conversations. The coach changes one thing at a time, tests it on practice visitors,
-          and keeps it only if the goal improves.
+          <span className="font-semibold">Agents defined as config. Improved by a coach. Graded against the goal.</span>
+          <br />
+          A MongoDB Atlas support assistant and a coach that studies its conversations. You set the goal; a judge turns it into a rubric; the coach changes one
+          thing at a time and keeps it only if more conversations meet the goal.
         </p>
         <Link href="/coach" className="group flex flex-col justify-between gap-6 border-t px-5 py-6 outline-none hover:bg-agent-soft focus-visible:bg-agent-soft lg:border-l lg:border-t-0">
           <span className="label text-agent">Watch a round</span>
